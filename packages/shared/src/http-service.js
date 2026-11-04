@@ -7,6 +7,7 @@ export function createServiceApp({
   serviceName,
   description,
   configureRoutes = () => {},
+  readinessCheck = null,
   logger = createLogger(serviceName),
 }) {
   const app = express();
@@ -34,14 +35,41 @@ export function createServiceApp({
 
   app.use(express.json({ limit: "100kb" }));
 
-  app.get("/health", (_req, res) => {
-    res.status(200).json({
-      status: "ok",
-      service: serviceName,
-      checkedAt: new Date().toISOString(),
-      checks: { process: "ok" },
-      scope: "process-only",
-    });
+  app.get("/health", async (req, res) => {
+    if (!readinessCheck) {
+      res.status(200).json({
+        status: "ok",
+        service: serviceName,
+        checkedAt: new Date().toISOString(),
+        checks: { process: "ok" },
+        scope: "process-only",
+      });
+      return;
+    }
+
+    try {
+      const result = await readinessCheck();
+      const ready = result?.ready === true;
+      res.status(ready ? 200 : 503).json({
+        status: ready ? "ok" : "unavailable",
+        service: serviceName,
+        checkedAt: new Date().toISOString(),
+        checks: result?.checks ?? { process: "ok", dependency: "unavailable" },
+        scope: result?.scope ?? "application-readiness",
+      });
+    } catch (error) {
+      logger.warn("health_check_failed", {
+        requestId: req.requestId,
+        errorName: error?.name || "Error",
+      });
+      res.status(503).json({
+        status: "unavailable",
+        service: serviceName,
+        checkedAt: new Date().toISOString(),
+        checks: { process: "ok", dependency: "unavailable" },
+        scope: "application-readiness",
+      });
+    }
   });
 
   configureRoutes(app);
@@ -99,7 +127,7 @@ export function createServiceApp({
   return app;
 }
 
-export function startService({ app, serviceName, port }) {
+export function startService({ app, serviceName, port, onShutdown = async () => {} }) {
   const logger = createLogger(serviceName);
   const server = app.listen(port, "0.0.0.0", () => {
     logger.info("server_started", { port, nodeEnv: process.env.NODE_ENV || "development" });
@@ -111,13 +139,18 @@ export function startService({ app, serviceName, port }) {
     isShuttingDown = true;
     logger.info("server_shutdown_started", { signal });
 
-    server.close((error) => {
+    server.close(async (error) => {
       if (error) {
         logger.error("server_shutdown_failed", { errorName: error.name });
         process.exitCode = 1;
-        return;
       }
 
+      try {
+        await onShutdown();
+      } catch (shutdownError) {
+        logger.error("service_cleanup_failed", { errorName: shutdownError?.name || "Error" });
+        process.exitCode = 1;
+      }
       logger.info("server_stopped", { signal });
     });
   };

@@ -51,7 +51,7 @@ export default async function HomePage() {
             <div>
               <h1 id="page-title">Service health</h1>
               <p className="page-subtitle">
-                Reachability checks for the services in this scaffold.
+                Readiness checks for the demo application and service processes.
               </p>
             </div>
             <a className="api-link" href="/api/health" target="_blank" rel="noreferrer">
@@ -64,20 +64,20 @@ export default async function HomePage() {
           <section className="scope-section" aria-labelledby="scope-heading">
             <div className="scope-section-heading">
               <h2 id="scope-heading">What these checks cover</h2>
-              <p>Read the status as process reachability, not application readiness.</p>
+              <p>Each service reports the checks that define its readiness.</p>
             </div>
             <div className="scope-grid">
               <article>
-                <h3>Process</h3>
-                <p>A healthy row means its `/health` endpoint returned the expected service identity.</p>
+                <h3>Demo application</h3>
+                <p>A healthy status means the app responds and MongoDB accepts a ping.</p>
               </article>
               <article>
                 <h3>Response</h3>
                 <p>Round-trip time is measured for this page load or your latest manual refresh.</p>
               </article>
               <article>
-                <h3>Dependencies</h3>
-                <p>Database readiness, scheduled monitoring, incidents, AI triage and recovery are not active yet.</p>
+                <h3>Other services</h3>
+                <p>The API, monitor, triage and executor scaffold checks process reachability only. Scheduled monitoring is not active yet.</p>
               </article>
             </div>
           </section>

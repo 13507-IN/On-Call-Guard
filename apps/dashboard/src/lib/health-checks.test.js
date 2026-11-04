@@ -20,6 +20,20 @@ test("probeService reports healthy only for the expected health response", async
   assert.match(result.checkedAt, /^\d{4}-\d{2}-\d{2}T/);
 });
 
+test("probeService describes application readiness when dependencies are checked", async () => {
+  const result = await probeService(SERVICE_CATALOG.find((service) => service.id === "demo-app"), {
+    fetchImpl: async () => Response.json({
+      status: "ok",
+      service: "demo-app",
+      scope: "application-readiness",
+      checks: { process: "ok", mongodb: "ok" },
+    }),
+  });
+
+  assert.equal(result.status, "healthy");
+  assert.equal(result.detail, "Application and required dependencies are ready.");
+});
+
 test("probeService marks an unexpected service response unavailable", async () => {
   const result = await probeService(apiService, {
     fetchImpl: async () => Response.json({ status: "ok", service: "other-service" }),

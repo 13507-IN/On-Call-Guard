@@ -1,4 +1,25 @@
 services:
+  mongodb:
+    image: mongo:8.0
+    environment:
+      MONGO_INITDB_DATABASE: oncall_demo
+    ports:
+      - "127.0.0.1:${MONGODB_PORT:-27017}:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - "db.adminCommand({ ping: 1 }).ok"
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
   api:
     build:
       context: ../..
@@ -31,6 +52,11 @@ services:
     environment:
       NODE_ENV: production
       DEMO_APP_PORT: 4101
+      DEMO_APP_RELEASE: ${DEMO_APP_RELEASE:-healthy}
+      MONGODB_URI: mongodb://mongodb:27017/oncall_demo?directConnection=true
+    depends_on:
+      mongodb:
+        condition: service_healthy
     ports:
       - "${DEMO_APP_PORT:-4101}:4101"
     healthcheck:
@@ -135,7 +161,7 @@ services:
       api:
         condition: service_healthy
       demo-app:
-        condition: service_healthy
+        condition: service_started
       monitor:
         condition: service_healthy
       triage:
@@ -153,3 +179,6 @@ services:
       retries: 5
       start_period: 20s
     restart: unless-stopped
+
+volumes:
+  mongo-data:

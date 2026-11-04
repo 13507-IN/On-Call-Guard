@@ -2,7 +2,7 @@ export const SERVICE_CATALOG = Object.freeze([
   {
     id: "demo-app",
     name: "Demo application",
-    purpose: "Sample Express application",
+    purpose: "Express app with MongoDB readiness",
     envKey: "DEMO_APP_URL",
     defaultUrl: "http://127.0.0.1:4101",
     expectedService: "demo-app",

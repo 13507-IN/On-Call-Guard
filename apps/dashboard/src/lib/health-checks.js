@@ -68,7 +68,9 @@ export async function probeService(
     return {
       ...publicService(service),
       status: "healthy",
-      detail: "Process is responding; dependency checks are not configured.",
+      detail: body.scope === "application-readiness"
+        ? "Application and required dependencies are ready."
+        : "Process is responding; dependency checks are not configured.",
       latencyMs,
       checkedAt,
     };
