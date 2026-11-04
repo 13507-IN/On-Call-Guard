@@ -1,0 +1,7 @@
+.env
+.git
+.next
+.taste-skill
+coverage
+node_modules
+npm-debug.log*

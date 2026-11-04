@@ -1,0 +1,42 @@
+export const SERVICE_CATALOG = Object.freeze([
+  {
+    id: "demo-app",
+    name: "Demo application",
+    purpose: "Sample Express application",
+    envKey: "DEMO_APP_URL",
+    defaultUrl: "http://127.0.0.1:4101",
+    expectedService: "demo-app",
+  },
+  {
+    id: "api",
+    name: "REST API",
+    purpose: "Express API scaffold",
+    envKey: "API_URL",
+    defaultUrl: "http://127.0.0.1:4100",
+    expectedService: "api",
+  },
+  {
+    id: "monitor",
+    name: "Monitor service",
+    purpose: "Health-only service shell",
+    envKey: "MONITOR_URL",
+    defaultUrl: "http://127.0.0.1:4102",
+    expectedService: "monitor",
+  },
+  {
+    id: "triage",
+    name: "Triage service",
+    purpose: "Read-only service shell",
+    envKey: "TRIAGE_URL",
+    defaultUrl: "http://127.0.0.1:4103",
+    expectedService: "triage",
+  },
+  {
+    id: "executor",
+    name: "Recovery executor",
+    purpose: "Restricted-action service shell",
+    envKey: "EXECUTOR_URL",
+    defaultUrl: "http://127.0.0.1:4104",
+    expectedService: "executor",
+  },
+]);

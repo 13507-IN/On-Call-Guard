@@ -1,0 +1,11 @@
+{
+  "name": "@oncall/shared",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./http-service": "./src/http-service.js",
+    "./logger": "./src/logger.js",
+    "./port": "./src/port.js"
+  }
+}

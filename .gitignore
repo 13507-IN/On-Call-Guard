@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+node_modules/
+coverage/
+.next/
+out/
+.taste-skill/
+npm-debug.log*
+.DS_Store

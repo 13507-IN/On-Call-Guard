@@ -1,0 +1,155 @@
+services:
+  api:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile
+      args:
+        WORKSPACE: services/api
+    environment:
+      NODE_ENV: production
+      API_PORT: 4100
+    ports:
+      - "${API_PORT:-4100}:4100"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4100/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  demo-app:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile
+      args:
+        WORKSPACE: apps/demo-app
+    environment:
+      NODE_ENV: production
+      DEMO_APP_PORT: 4101
+    ports:
+      - "${DEMO_APP_PORT:-4101}:4101"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4101/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  monitor:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile
+      args:
+        WORKSPACE: services/monitor
+    environment:
+      NODE_ENV: production
+      MONITOR_PORT: 4102
+    ports:
+      - "${MONITOR_PORT:-4102}:4102"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4102/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  triage:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile
+      args:
+        WORKSPACE: services/triage
+    environment:
+      NODE_ENV: production
+      TRIAGE_PORT: 4103
+    ports:
+      - "${TRIAGE_PORT:-4103}:4103"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4103/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  executor:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile
+      args:
+        WORKSPACE: services/executor
+    environment:
+      NODE_ENV: production
+      EXECUTOR_PORT: 4104
+    ports:
+      - "${EXECUTOR_PORT:-4104}:4104"
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:4104/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  dashboard:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/Dockerfile
+      args:
+        WORKSPACE: apps/dashboard
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      API_URL: http://api:4100
+      DEMO_APP_URL: http://demo-app:4101
+      MONITOR_URL: http://monitor:4102
+      TRIAGE_URL: http://triage:4103
+      EXECUTOR_URL: http://executor:4104
+      HEALTH_CHECK_TIMEOUT_MS: ${HEALTH_CHECK_TIMEOUT_MS:-1500}
+    ports:
+      - "${DASHBOARD_PORT:-3002}:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+      demo-app:
+        condition: service_healthy
+      monitor:
+        condition: service_healthy
+      triage:
+        condition: service_healthy
+      executor:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:3000/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 20s
+    restart: unless-stopped
