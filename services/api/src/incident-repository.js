@@ -17,6 +17,7 @@ export function createMongoIncidentRepository(database) {
     async initialize() {
       await Promise.all([
         incidents.createIndex({ incidentId: 1 }, { unique: true }),
+        incidents.createIndex({ sourceEventId: 1 }, { unique: true, sparse: true }),
         incidents.createIndex({ activeApplicationId: 1 }, { unique: true, sparse: true }),
         incidents.createIndex({ status: 1, createdAt: -1 }),
         incidents.createIndex({ source: 1, severity: 1, createdAt: -1 }),
@@ -66,6 +67,10 @@ export function createMongoIncidentRepository(database) {
       }));
     },
 
+    async findIncidentBySourceEventId(sourceEventId) {
+      return withoutMongoId(await incidents.findOne({ sourceEventId }));
+    },
+
     async createIncident(incident) {
       await incidents.insertOne(incident);
       return incident;
@@ -100,6 +105,92 @@ export function createMongoIncidentRepository(database) {
           $addToSet: { timeline: event },
         },
       );
+      return withoutMongoId(await incidents.findOne({ incidentId }));
+    },
+
+    async claimInvestigation(incidentId, {
+      attemptId,
+      startedAt,
+      staleBefore,
+      event,
+    }) {
+      const result = await incidents.updateOne(
+        {
+          incidentId,
+          status: { $in: ["open", "investigating", "awaiting_approval", "failed"] },
+          $or: [
+            { "investigation.status": { $ne: "running" } },
+            { "investigation.startedAt": { $lt: staleBefore } },
+          ],
+        },
+        {
+          $set: {
+            status: "investigating",
+            isActive: true,
+            updatedAt: startedAt,
+            "investigation.status": "running",
+            "investigation.attemptId": attemptId,
+            "investigation.startedAt": startedAt,
+            "investigation.error": null,
+          },
+          $inc: { "investigation.attemptCount": 1 },
+          $addToSet: { timeline: event },
+        },
+      );
+      if (result.matchedCount !== 1) return null;
+      return withoutMongoId(await incidents.findOne({ incidentId }));
+    },
+
+    async completeInvestigation(incidentId, {
+      attemptId,
+      completedAt,
+      diagnosis,
+      event,
+    }) {
+      const result = await incidents.updateOne(
+        {
+          incidentId,
+          "investigation.status": "running",
+          "investigation.attemptId": attemptId,
+        },
+        {
+          $set: {
+            updatedAt: completedAt,
+            "investigation.status": "completed",
+            "investigation.completedAt": completedAt,
+            "investigation.diagnosis": diagnosis,
+            "investigation.error": null,
+          },
+          $addToSet: { timeline: event },
+        },
+      );
+      if (result.matchedCount !== 1) return null;
+      return withoutMongoId(await incidents.findOne({ incidentId }));
+    },
+
+    async failInvestigation(incidentId, {
+      attemptId,
+      failedAt,
+      failure,
+      event,
+    }) {
+      const result = await incidents.updateOne(
+        {
+          incidentId,
+          "investigation.status": "running",
+          "investigation.attemptId": attemptId,
+        },
+        {
+          $set: {
+            updatedAt: failedAt,
+            "investigation.status": "failed",
+            "investigation.failedAt": failedAt,
+            "investigation.error": failure,
+          },
+          $addToSet: { timeline: event },
+        },
+      );
+      if (result.matchedCount !== 1) return null;
       return withoutMongoId(await incidents.findOne({ incidentId }));
     },
 

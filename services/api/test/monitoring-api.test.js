@@ -51,6 +51,11 @@ function createMemoryRepository() {
         [...incidents.values()].find((incident) => incident.activeApplicationId === applicationId) ?? null,
       );
     },
+    async findIncidentBySourceEventId(sourceEventId) {
+      return structuredClone(
+        [...incidents.values()].find((incident) => incident.sourceEventId === sourceEventId) ?? null,
+      );
+    },
     async createIncident(incident) {
       if ([...incidents.values()].some((item) => item.activeApplicationId === incident.applicationId)) {
         const error = new Error("Duplicate active incident.");
@@ -447,8 +452,9 @@ test("dashboard and teammate reports create records in the same incident system"
       reporter: { id: "forged-id", name: "Forged Reporter" },
       report: {
         originalMessage: "Several customers are seeing checkout errors.",
-        platform: "slack",
-        channelReference: "support-incidents",
+        platform: "discord",
+        eventId: "discord:room-17:message-87",
+        channelReference: "room-17",
         messageTimestamp: "2026-11-05T06:00:00.000Z",
       },
   });
@@ -463,8 +469,8 @@ test("dashboard and teammate reports create records in the same incident system"
   assert.deepEqual(teamIncident.reporter, authenticatedReporter);
   assert.equal(teamIncident.timeline[0].author, authenticatedReporter.name);
   assert.equal(teamIncident.reports[0].originalMessage, "Several customers are seeing checkout errors.");
-  assert.equal(teamIncident.reports[0].platform, "slack");
-  assert.equal(teamIncident.reports[0].channelReference, "support-incidents");
+  assert.equal(teamIncident.reports[0].platform, "discord");
+  assert.equal(teamIncident.reports[0].channelReference, "room-17");
   assert.equal(teamIncident.reports[0].messageTimestamp, "2026-11-05T06:00:00.000Z");
   assert.equal(teamIncident.severity, "medium");
   assert.equal(teamIncident.status, "open");
@@ -478,6 +484,69 @@ test("dashboard and teammate reports create records in the same incident system"
   const filteredBody = await filtered.json();
   assert.equal(filteredBody.count, 1);
   assert.equal(filteredBody.incidents[0].incidentId, teamIncident.incidentId);
+});
+
+test("Discord and Telegram event IDs make teammate incident creation idempotent", async (t) => {
+  const { app, repository } = makeApp();
+  const baseUrl = await startServer(app, t);
+  for (const platform of ["discord", "telegram"]) {
+    const report = {
+      applicationId: "demo-app",
+      title: "Website returns 500 errors",
+      description: "The website is returning HTTP 500 errors.",
+      report: {
+        platform,
+        eventId: "room-17:message-123",
+        originalMessage: "oncall report Demo application returns 500 errors. Please investigate.",
+        reporter: { id: `${platform}-user-17`, name: "Jordan" },
+        channelReference: `${platform}-room-17`,
+        messageTimestamp: "2026-11-06T10:00:00.000Z",
+      },
+    };
+
+    const firstResponse = await postTeamReport(baseUrl, report);
+    const duplicateResponse = await postTeamReport(baseUrl, report);
+    assert.equal(firstResponse.status, 201);
+    assert.equal(duplicateResponse.status, 200);
+
+    const firstPayload = await firstResponse.json();
+    const duplicatePayload = await duplicateResponse.json();
+    assert.equal(firstPayload.duplicate, false);
+    assert.equal(duplicatePayload.duplicate, true);
+    assert.equal(duplicatePayload.incident.incidentId, firstPayload.incident.incidentId);
+    assert.equal(firstPayload.incident.reports[0].eventId, "room-17:message-123");
+    assert.deepEqual(firstPayload.incident.reports[0].reporter, {
+      id: `${platform}-user-17`,
+      name: "Jordan",
+    });
+    assert.equal(
+      firstPayload.incident.reports[0].originalMessage,
+      report.report.originalMessage,
+    );
+    assert.equal(Object.hasOwn(firstPayload.incident, "sourceEventId"), false);
+  }
+  assert.equal((await repository.listIncidents({ limit: 50 })).length, 2);
+});
+
+test("Discord and Telegram reports require a stable source event ID", async (t) => {
+  const { app } = makeApp();
+  const baseUrl = await startServer(app, t);
+  for (const report of [
+    { platform: "discord" },
+    { platform: "telegram" },
+    { platform: "unsupported", eventId: "unexpected-event" },
+  ]) {
+    const response = await postTeamReport(baseUrl, {
+      applicationId: "demo-app",
+      title: "Chat report",
+      description: "A teammate reports an incident.",
+      report: {
+        originalMessage: "Please investigate.",
+        ...report,
+      },
+    });
+    assert.equal(response.status, 400);
+  }
 });
 
 test("report linking and incident history preserve events without title-based merging", async (t) => {

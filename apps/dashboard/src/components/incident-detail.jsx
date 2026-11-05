@@ -173,6 +173,9 @@ export default function IncidentDetail({
   const [savingStatus, setSavingStatus] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState(initialIncident?.status ?? "");
   const [statusError, setStatusError] = useState("");
+  const [investigationToken, setInvestigationToken] = useState("");
+  const [investigationSubmitting, setInvestigationSubmitting] = useState(false);
+  const [investigationError, setInvestigationError] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const allowedStatuses = useMemo(() => {
     if (!incident) return [];
@@ -245,6 +248,42 @@ export default function IncidentDetail({
     }
   }
 
+  async function runInvestigation(event) {
+    event.preventDefault();
+    const token = investigationToken.trim();
+    if (!token) {
+      setInvestigationError("Enter a configured teammate token to start an investigation.");
+      return;
+    }
+    setInvestigationSubmitting(true);
+    setInvestigationError("");
+    try {
+      const response = await fetch(
+        `/api/incidents/${encodeURIComponent(incidentId)}/investigations`,
+        {
+          method: "POST",
+          headers: { authorization: `Bearer ${token}` },
+          cache: "no-store",
+        },
+      );
+      const payload = await response.json();
+      if (!response.ok) {
+        throw new Error(payload.error?.message ?? "The investigation could not be started.");
+      }
+      if (!payload.incident) throw new Error("The investigation response was incomplete.");
+      setIncident(payload.incident);
+      setSelectedStatus(payload.incident.status);
+      await refresh();
+    } catch (cause) {
+      setInvestigationError(
+        cause instanceof Error ? cause.message : "The investigation could not be completed.",
+      );
+      await refresh();
+    } finally {
+      setInvestigationSubmitting(false);
+    }
+  }
+
   if (!incident) {
     return (
       <section className="incident-detail-panel">
@@ -307,8 +346,137 @@ export default function IncidentDetail({
           </DetailField>
         </dl>
         <div className="incident-investigation">
-          <h3>Investigation findings</h3>
-          <p>{incident.investigationSummary || "No investigation findings have been recorded."}</p>
+          <div className="investigation-heading">
+            <div>
+              <h3>AI investigation</h3>
+              <p>
+                {incident.investigation?.status === "running"
+                  ? "Collecting available evidence and preparing a diagnosis."
+                  : incident.investigation?.status === "failed"
+                    ? incident.investigation.error?.message ?? "The last investigation failed."
+                    : incident.investigation?.diagnosis?.summary ??
+                      incident.investigationSummary ??
+                      "No investigation findings have been recorded."}
+              </p>
+            </div>
+            <span className={`investigation-state investigation-state-${incident.investigation?.status ?? "idle"}`}>
+              {humanize(incident.investigation?.status ?? "not started")}
+            </span>
+          </div>
+
+          {incident.investigation?.diagnosis ? (
+            <div className="diagnosis-content">
+              <div className="diagnosis-cause">
+                <h4>Probable cause</h4>
+                <p>{incident.investigation.diagnosis.probableCause}</p>
+                <span>
+                  Confidence {Math.round(incident.investigation.diagnosis.confidence * 100)}%
+                  {" · "}hypothesis, not a verified root cause
+                </span>
+              </div>
+
+              <div className="diagnosis-section">
+                <h4>Evidence</h4>
+                {incident.investigation.diagnosis.evidence.length > 0 ? (
+                  <ul className="diagnosis-evidence-list">
+                    {incident.investigation.diagnosis.evidence.map((item, index) => (
+                      <li key={`${item.source}-${index}`}>
+                        <span className={`evidence-classification evidence-${item.classification}`}>
+                          {item.classification === "confirmed_fact" ? "Fact" : "Hypothesis"}
+                        </span>
+                        <strong>{item.source}</strong>
+                        <p>{item.observation}</p>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="incident-detail-empty">
+                    No supporting evidence was available; treat the proposed cause with caution.
+                  </p>
+                )}
+              </div>
+
+              {incident.investigation.diagnosis.relevantLogExcerpts.length > 0 ? (
+                <div className="diagnosis-section">
+                  <h4>Relevant log excerpts</h4>
+                  <ul className="diagnosis-plain-list">
+                    {incident.investigation.diagnosis.relevantLogExcerpts.map((excerpt, index) => (
+                      <li key={`${index}-${excerpt.slice(0, 24)}`}>{excerpt}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+
+              <div className="diagnosis-section">
+                <h4>Recommended investigation steps</h4>
+                <ol className="diagnosis-plain-list">
+                  {incident.investigation.diagnosis.recommendedInvestigationSteps.map((step, index) => (
+                    <li key={`${index}-${step.slice(0, 24)}`}>{step}</li>
+                  ))}
+                </ol>
+              </div>
+
+              <div className="diagnosis-action">
+                <h4>Recommended action · human approval required</h4>
+                <p>{incident.investigation.diagnosis.recommendedAction}</p>
+                <p className="investigation-risk">
+                  Risk: {incident.investigation.diagnosis.risk}
+                </p>
+              </div>
+
+              {incident.investigation.diagnosis.missingInformation.length > 0 ? (
+                <div className="diagnosis-section">
+                  <h4>Unavailable or missing information</h4>
+                  <ul className="diagnosis-plain-list">
+                    {incident.investigation.diagnosis.missingInformation.map((item, index) => (
+                      <li key={`${index}-${item.slice(0, 24)}`}>{item}</li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          <form className="incident-investigation-form" onSubmit={runInvestigation}>
+            <label htmlFor="investigation-token">Teammate access token</label>
+            <input
+              id="investigation-token"
+              type="password"
+              autoComplete="off"
+              spellCheck="false"
+              value={investigationToken}
+              onChange={(event) => setInvestigationToken(event.target.value)}
+              aria-describedby="investigation-token-help"
+              required
+            />
+            <p id="investigation-token-help">
+              Uses the same configured team token as incident reporting. It is sent only with this
+              request and is not stored by the dashboard.
+            </p>
+            <button
+              className="form-submit"
+              type="submit"
+              disabled={
+                investigationSubmitting ||
+                incident.investigation?.status === "running" ||
+                incident.status === "resolved"
+              }
+            >
+              {investigationSubmitting
+                ? "Investigating…"
+                : incident.investigation?.status === "failed"
+                  ? "Retry investigation"
+                  : incident.investigation?.status === "completed"
+                    ? "Investigate again"
+                    : "Start investigation"}
+            </button>
+            {incident.status === "resolved" ? (
+              <p className="investigation-form-note">Resolved incidents are read-only.</p>
+            ) : null}
+            {investigationError ? (
+              <p className="form-error" role="alert">{investigationError}</p>
+            ) : null}
+          </form>
         </div>
         <form className="incident-status-form" onSubmit={updateStatus}>
           <label htmlFor="incident-status-select">Update status</label>

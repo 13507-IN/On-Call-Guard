@@ -1,10 +1,16 @@
 import { createServiceApp, startService } from "@oncall/shared/http-service";
 import { parsePort } from "@oncall/shared/port";
+import { createLogger } from "@oncall/shared/logger";
+import { createTriageApp } from "./app.js";
+import { createOpenCodeDiagnosisProvider } from "./opencode-provider.js";
 
 const serviceName = "triage";
-const app = createServiceApp({
-  serviceName,
-  description: "Read-only triage service shell. AI investigation is not part of Prompt 1.",
+const logger = createLogger(serviceName);
+const provider = createOpenCodeDiagnosisProvider();
+const app = createTriageApp({
+  diagnosisProvider: provider,
+  serviceToken: process.env.TRIAGE_SERVICE_TOKEN ?? "",
+  logger,
 });
 
 startService({

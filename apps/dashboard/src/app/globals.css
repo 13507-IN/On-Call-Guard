@@ -1330,6 +1330,187 @@ a:focus-visible {
   white-space: pre-wrap;
 }
 
+.investigation-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.investigation-heading > div {
+  min-width: 0;
+}
+
+.investigation-state {
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--active);
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.investigation-state-completed {
+  background: var(--positive-bg);
+  color: var(--positive-ink);
+}
+
+.investigation-state-failed {
+  background: var(--negative-bg);
+  color: var(--negative-ink);
+}
+
+.diagnosis-content {
+  display: grid;
+  gap: 16px;
+  margin-top: 17px;
+}
+
+.diagnosis-cause,
+.diagnosis-action {
+  padding: 14px;
+  background: var(--raised);
+}
+
+.diagnosis-content h4 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.diagnosis-cause > p,
+.diagnosis-action > p {
+  margin: 6px 0 0;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.diagnosis-cause > span {
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.diagnosis-section {
+  min-width: 0;
+}
+
+.diagnosis-evidence-list,
+.diagnosis-plain-list {
+  display: grid;
+  gap: 10px;
+  margin: 9px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.diagnosis-evidence-list > li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 4px 9px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.diagnosis-evidence-list > li > strong {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.diagnosis-evidence-list > li > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text);
+  font-size: 13px;
+}
+
+.evidence-classification {
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--active);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.evidence-confirmed_fact {
+  background: var(--positive-bg);
+  color: var(--positive-ink);
+}
+
+.evidence-hypothesis {
+  background: #fff4d6;
+  color: #624b16;
+}
+
+.diagnosis-plain-list {
+  padding-left: 18px;
+  list-style: disc;
+}
+
+.diagnosis-plain-list > li {
+  color: var(--text);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.investigation-risk {
+  color: var(--muted) !important;
+  font-size: 12px !important;
+}
+
+.incident-investigation-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 7px 12px;
+  margin-top: 18px;
+  padding-top: 15px;
+  border-top: 1px solid var(--rule);
+}
+
+.incident-investigation-form label,
+.incident-investigation-form input,
+.incident-investigation-form > p {
+  grid-column: 1 / -1;
+}
+
+.incident-investigation-form label {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.incident-investigation-form input {
+  width: 100%;
+  min-height: 38px;
+  padding: 8px 10px;
+  border: 1px solid var(--control);
+  border-radius: 6px;
+  color: var(--text);
+  background: var(--surface);
+  font: inherit;
+}
+
+.incident-investigation-form > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.incident-investigation-form .form-submit {
+  grid-column: 1;
+  margin-top: 5px;
+  min-height: 40px;
+}
+
+.incident-investigation-form .form-error {
+  grid-column: 1 / -1;
+  color: var(--negative);
+}
+
 .incident-status-form {
   display: flex;
   flex-wrap: wrap;
@@ -1710,6 +1891,23 @@ a:focus-visible {
 
   .incident-status-form .form-submit {
     min-height: 42px;
+  }
+
+  .incident-investigation-form {
+    grid-template-columns: 1fr;
+  }
+
+  .incident-investigation-form .form-submit {
+    grid-column: 1;
+    min-height: 42px;
+  }
+
+  .incident-investigation-form input {
+    min-height: 42px;
+  }
+
+  .investigation-heading {
+    flex-direction: column;
   }
 }
 

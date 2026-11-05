@@ -6,6 +6,8 @@ import { createApiApp } from "./app.js";
 import { createMongoIncidentRepository } from "./incident-repository.js";
 import { createIncidentService } from "./incident-service.js";
 import { createMonitoringService } from "./monitoring-service.js";
+import { createInvestigationService } from "./investigation-service.js";
+import { createTriageClient } from "./triage-client.js";
 import { parseTeamReporterCredentials } from "./team-report-auth.js";
 import { startService } from "@oncall/shared/http-service";
 
@@ -33,9 +35,18 @@ async function startApi() {
       policy: config,
       incidentService,
     });
+    const investigationService = createInvestigationService({
+      incidentService,
+      monitoringService,
+      diagnosisClient: createTriageClient(),
+      applicationUrl: config.targetUrl,
+      healthTimeoutMs: Number(process.env.HEALTH_CHECK_TIMEOUT_MS ?? 1_500),
+      logger,
+    });
     const app = createApiApp({
       monitoringService,
       incidentService,
+      investigationService,
       applicationId: config.applicationId,
       applicationName: config.applicationName,
       ingestToken: config.ingestToken,

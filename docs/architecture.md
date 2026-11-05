@@ -71,6 +71,7 @@ for this stage.
    renders detail and chronological history views.
 
 See [incident-management.md](incident-management.md) for fields, endpoints, and the current
-authentication boundary. Actual communication-platform integrations, AI triage, Telegram,
-approval workflows, and recovery execution remain later stages. The demo app's healthy and broken
-release behavior is documented in [demo-app.md](demo-app.md).
+authentication boundary. AI triage and the Switch Console communication bridge are implemented;
+Discord/Telegram connections still require local Switch Console configuration. Approval workflows
+and recovery execution remain later stages. The demo app's healthy and broken release behavior is
+documented in [demo-app.md](demo-app.md).

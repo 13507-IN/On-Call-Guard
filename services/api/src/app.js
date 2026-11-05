@@ -70,6 +70,7 @@ export function createApiApp({
     ready: true,
     checks: { process: "ok", mongodb: "ok" },
   }),
+  investigationService = null,
   logger,
 }) {
   if (!monitoringService) throw new Error("monitoringService is required.");
@@ -85,7 +86,7 @@ export function createApiApp({
         res.json({
           service: "api",
           product: "On-call Incident Assistant",
-          stage: "monitoring",
+          stage: "investigation",
           endpoints: [
             "GET /api/v1/monitoring/status",
             "POST /api/v1/monitoring/checks",
@@ -95,6 +96,8 @@ export function createApiApp({
             "GET /api/v1/incidents/:incidentId",
             "PATCH /api/v1/incidents/:incidentId",
             "GET /api/v1/incidents/:incidentId/history",
+            "POST /api/v1/incidents/:incidentId/investigations",
+            "GET /api/v1/incidents/:incidentId/investigation",
             "POST /api/v1/incidents/:incidentId/reports",
           ],
         });
@@ -162,7 +165,10 @@ export function createApiApp({
             applicationName,
             reporter,
           });
-          res.status(result.created ? 201 : 200).json({ incident: result.incident });
+          res.status(result.created ? 201 : 200).json({
+            incident: result.incident,
+            duplicate: result.duplicate === true,
+          });
         } catch (error) {
           res.status(400).json({
             error: {
@@ -269,6 +275,93 @@ export function createApiApp({
         }
         res.setHeader("Cache-Control", "no-store");
         res.json({ events, count: events.length });
+      });
+
+      app.get("/api/v1/incidents/:incidentId/investigation", async (req, res) => {
+        if (!UUID_PATTERN.test(req.params.incidentId)) {
+          res.status(400).json({
+            error: {
+              code: "INVALID_INCIDENT_ID",
+              message: "Incident ID is invalid.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+        const incident = await incidentService.getIncident(req.params.incidentId);
+        if (!incident) {
+          res.status(404).json({
+            error: {
+              code: "INCIDENT_NOT_FOUND",
+              message: "Incident was not found.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ investigation: incident.investigation ?? null });
+      });
+
+      app.post("/api/v1/incidents/:incidentId/investigations", async (req, res) => {
+        if (!UUID_PATTERN.test(req.params.incidentId)) {
+          res.status(400).json({
+            error: {
+              code: "INVALID_INCIDENT_ID",
+              message: "Incident ID is invalid.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+        const reporter = authenticateTeamReporter(
+          req.get("authorization"),
+          teamReporterCredentials,
+        );
+        if (!reporter) {
+          res.setHeader("WWW-Authenticate", 'Bearer realm="incident-investigation"');
+          res.status(401).json({
+            error: {
+              code: "UNAUTHORIZED",
+              message: "A valid teammate token is required to investigate incidents.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+        if (!investigationService) {
+          res.status(503).json({
+            error: {
+              code: "INVESTIGATION_UNAVAILABLE",
+              message: "The investigation service is not configured.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+
+        try {
+          const result = await investigationService.investigate(req.params.incidentId, {
+            requestedBy: reporter.name ?? reporter.id,
+          });
+          res.setHeader("Cache-Control", "no-store");
+          res.json({ incident: result.incident });
+        } catch (error) {
+          const conflict = error.code === "INVESTIGATION_IN_PROGRESS" ||
+            error.code === "INVESTIGATION_NOT_ALLOWED";
+          const notFound = error.code === "INCIDENT_NOT_FOUND";
+          res.status(notFound ? 404 : conflict ? 409 : 502).json({
+            error: {
+              code: error.code || "INVESTIGATION_FAILED",
+              message: notFound
+                ? "Incident was not found."
+                : conflict
+                  ? error.message
+                  : "Investigation failed. Check OpenCode and provider availability, then retry.",
+              requestId: req.requestId,
+            },
+          });
+        }
       });
 
       app.post("/api/v1/incidents/:incidentId/reports", async (req, res) => {

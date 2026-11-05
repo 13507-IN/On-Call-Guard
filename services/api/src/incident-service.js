@@ -2,13 +2,20 @@ import { randomUUID } from "node:crypto";
 import { INCIDENT_STATUSES } from "@oncall/shared/monitoring";
 
 const INCIDENT_SOURCES = new Set(["monitoring", "team_report", "manual_dashboard"]);
-const REPORT_PLATFORMS = new Set(["slack", "discord", "other"]);
+const REPORT_PLATFORMS = new Set(["slack", "discord", "telegram", "other"]);
+const EVENT_ID_PLATFORMS = new Set(["discord", "telegram"]);
 const SEVERITIES = new Set(["low", "medium", "high", "critical"]);
 const ACTIVE_STATUSES = new Set([
   "open",
   "investigating",
   "awaiting_approval",
   "recovering",
+]);
+const INVESTIGATABLE_STATUSES = new Set([
+  "open",
+  "investigating",
+  "awaiting_approval",
+  "failed",
 ]);
 const STATUS_TRANSITIONS = Object.freeze({
   open: new Set(["investigating", "failed"]),
@@ -49,7 +56,7 @@ function parseReporter(input, source) {
   return { id, name };
 }
 
-function parseTeamReport(input) {
+function parseTeamReport(input, { requireEventId = true } = {}) {
   if (input === undefined || input === null) return null;
   if (typeof input !== "object" || Array.isArray(input)) {
     throw new Error("report must be an object.");
@@ -59,7 +66,30 @@ function parseTeamReport(input) {
     ? null
     : input.platform;
   if (platform !== null && !REPORT_PLATFORMS.has(platform)) {
-    throw new Error("report.platform must be slack, discord, or other.");
+    throw new Error("report.platform is unsupported.");
+  }
+
+  const eventId = optionalText(input.eventId, "report.eventId", 256);
+  if (requireEventId && EVENT_ID_PLATFORMS.has(platform) && !eventId) {
+    throw new Error(`report.eventId is required for ${platform} reports.`);
+  }
+  if (eventId && !EVENT_ID_PLATFORMS.has(platform)) {
+    throw new Error("report.eventId is supported only for Discord and Telegram reports.");
+  }
+
+  let platformReporter = null;
+  if (input.reporter !== undefined && input.reporter !== null) {
+    if (
+      typeof input.reporter !== "object" ||
+      Array.isArray(input.reporter) ||
+      Object.keys(input.reporter).some((key) => !["id", "name"].includes(key))
+    ) {
+      throw new Error("report.reporter must contain only id and name.");
+    }
+    const id = optionalText(input.reporter.id, "report.reporter.id", 200);
+    const name = optionalText(input.reporter.name, "report.reporter.name", 120);
+    if (!id && !name) throw new Error("report.reporter must include an id or name.");
+    platformReporter = { id, name };
   }
 
   let messageTimestamp = null;
@@ -79,6 +109,8 @@ function parseTeamReport(input) {
     platform,
     channelReference: optionalText(input.channelReference, "report.channelReference", 300),
     messageTimestamp,
+    ...(eventId ? { eventId } : {}),
+    ...(platformReporter ? { reporter: platformReporter } : {}),
   };
   return Object.values(report).some((value) => value !== null) ? report : null;
 }
@@ -108,6 +140,7 @@ function publicIncident(incident) {
   const {
     activeApplicationId,
     lastProcessedCheckId,
+    sourceEventId,
     ...visibleIncident
   } = incident;
   return visibleIncident;
@@ -157,7 +190,21 @@ export function createIncidentService({
 
     const reporter = parseReporter(input.reporter, source);
     const report = source === "team_report" ? parseTeamReport(input.report) : null;
+    const sourceEventId = report?.eventId && report?.platform
+      ? `${report.platform}:${report.eventId}`
+      : null;
     const now = clock().toISOString();
+
+    if (sourceEventId && repository.findIncidentBySourceEventId) {
+      const existingIncident = await repository.findIncidentBySourceEventId(sourceEventId);
+      if (existingIncident) {
+        return {
+          incident: publicIncident(existingIncident),
+          created: false,
+          duplicate: true,
+        };
+      }
+    }
 
     if (source === "monitoring") {
       const activeIncident = await repository.getActiveIncident(applicationId);
@@ -225,12 +272,23 @@ export function createIncidentService({
           lastProcessedCheckId: input.lastProcessedCheckId ?? null,
         }
         : {}),
+      ...(sourceEventId ? { sourceEventId } : {}),
     };
 
     try {
       const created = await repository.createIncident(incident);
       return { incident: publicIncident(created), created: true, duplicate: false };
     } catch (error) {
+      if (sourceEventId && error?.code === 11000 && repository.findIncidentBySourceEventId) {
+        const existingIncident = await repository.findIncidentBySourceEventId(sourceEventId);
+        if (existingIncident) {
+          return {
+            incident: publicIncident(existingIncident),
+            created: false,
+            duplicate: true,
+          };
+        }
+      }
       if (source !== "monitoring" || error?.code !== 11000) throw error;
       const racedIncident = await repository.getActiveIncident(applicationId);
       if (!racedIncident) throw error;
@@ -242,6 +300,98 @@ export function createIncidentService({
     const event = createEvent(incidentId, eventInput);
     const incident = await repository.appendIncidentEvent(incidentId, event);
     return publicIncident(incident);
+  }
+
+  async function beginInvestigation(incidentId, {
+    attemptId = idFactory(),
+    startedAt = clock().toISOString(),
+    staleAfterMs = 120_000,
+    requestedBy = null,
+  } = {}) {
+    const current = await repository.findIncident(incidentId);
+    if (!current) return { incident: null, started: false, reason: "not_found" };
+    if (!INVESTIGATABLE_STATUSES.has(current.status)) {
+      return {
+        incident: publicIncident(current),
+        started: false,
+        reason: current.status === "resolved" ? "resolved" : "status_not_investigatable",
+      };
+    }
+
+    const staleBefore = new Date(Date.parse(startedAt) - staleAfterMs).toISOString();
+    const event = createEvent(incidentId, {
+      author: requestedBy
+        ? requiredText(requestedBy, "requestedBy", 200)
+        : "triage",
+      eventType: "investigation_started",
+      message: requestedBy
+        ? `${requiredText(requestedBy, "requestedBy", 200)} started a read-only investigation.`
+        : "Read-only incident investigation started.",
+      metadata: { attemptId },
+      timestamp: startedAt,
+    });
+    const claimed = await repository.claimInvestigation(incidentId, {
+      attemptId,
+      startedAt,
+      staleBefore,
+      event,
+    });
+    if (claimed) {
+      return { incident: publicIncident(claimed), started: true, attemptId };
+    }
+
+    const latest = await repository.findIncident(incidentId);
+    return {
+      incident: publicIncident(latest),
+      started: false,
+      reason: latest?.investigation?.status === "running"
+        ? "already_running"
+        : "status_not_investigatable",
+    };
+  }
+
+  async function completeInvestigation(incidentId, {
+    attemptId,
+    diagnosis,
+    completedAt = clock().toISOString(),
+  }) {
+    const event = createEvent(incidentId, {
+      author: "triage",
+      eventType: "investigation_completed",
+      message: "Read-only incident investigation completed.",
+      metadata: {
+        confidence: diagnosis.confidence,
+        evidenceCount: diagnosis.evidence.length,
+        requiresHumanApproval: diagnosis.requiresHumanApproval,
+      },
+      timestamp: completedAt,
+    });
+    return publicIncident(await repository.completeInvestigation(incidentId, {
+      attemptId,
+      completedAt,
+      diagnosis,
+      event,
+    }));
+  }
+
+  async function failInvestigation(incidentId, {
+    attemptId,
+    failure,
+    failedAt = clock().toISOString(),
+  }) {
+    const event = createEvent(incidentId, {
+      author: "triage",
+      eventType: "investigation_failed",
+      message: "Incident investigation failed and can be retried.",
+      metadata: { code: failure.code },
+      timestamp: failedAt,
+    });
+    return publicIncident(await repository.failInvestigation(incidentId, {
+      attemptId,
+      failedAt,
+      failure,
+      event,
+    }));
   }
 
   async function updateFromSystem(incidentId, changes, eventInput) {
@@ -343,7 +493,7 @@ export function createIncidentService({
       throw new Error("Report data must be an object.");
     }
     const reporter = parseReporter(input.reporter, "team_report");
-    const parsedReport = parseTeamReport(input.report);
+    const parsedReport = parseTeamReport(input.report, { requireEventId: false });
     if (!parsedReport?.originalMessage) {
       throw new Error("report.originalMessage is required to link a teammate report.");
     }
@@ -389,6 +539,9 @@ export function createIncidentService({
     updateIncident,
     updateFromSystem,
     recordEvent,
+    beginInvestigation,
+    completeInvestigation,
+    failInvestigation,
     linkReport,
     getIncident,
     getIncidentHistory,

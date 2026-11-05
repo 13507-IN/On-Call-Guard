@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@oncall/shared": "1.0.0",
+    "@opencode-ai/sdk": "^1.19.5",
     "express": "5.3.0"
   }
 }

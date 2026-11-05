@@ -16,11 +16,13 @@ Supported sources:
 - `monitoring`: created after the configured consecutive failure threshold. It includes the latest
   health evidence and updates the active incident during the same outage.
 - `manual_dashboard`: retained for dashboard-originated records created by other trusted callers.
-- `team_report`: submitted by a teammate through the dedicated reporting endpoint or linked to an
-  existing incident. The endpoint assigns this source; clients cannot label a teammate report as a
-  different source. Reporter ID/name come from the token configuration. The incident description is
-  always stored; original message, platform, channel/conversation reference, and message timestamp
-  are optional context.
+- `team_report`: submitted by a teammate or a configured communication integration through the
+  dedicated reporting endpoint, or linked to an existing incident. The endpoint assigns this
+  source; clients cannot label a teammate report as a different source. The authenticated API
+  reporter comes from the token configuration. A Discord or Telegram event also preserves its
+  source message ID and, when available, the original sender identity in the attached report. The
+  incident description is always stored; original message, platform, channel/conversation reference,
+  and message timestamp are optional context.
 
 Reports are not merged based on title similarity. A teammate message can instead be explicitly
 linked to an existing incident.
@@ -41,12 +43,14 @@ All backend paths are under `/api/v1`:
 
 The dashboard exposes same-origin proxies under `/api/incidents` and `/api/incidents/reports`. It
 forwards the bearer token in the `Authorization` header to the API and does not store it in browser
-storage. The API ignores any client-supplied reporter identity, looks up the authenticated reporter,
+storage. The API ignores any top-level client-supplied reporter identity, looks up the authenticated reporter,
 assigns the source from the route, verifies the application ID against the configured monitored
 application, and supplies the canonical application name. The shared incident service validates
 and stores the incident and initial timeline event. Repeated
 teammate reports are not merged by title; each submission creates a separate incident unless a
-teammate explicitly links the report to an existing incident.
+teammate explicitly links the report to an existing incident. Discord and Telegram reports use the
+platform plus source message ID as an idempotency key, so a retried event returns its original
+incident.
 
 Status changes remain transition-checked and appended to the timeline. `resolved` is rejected unless
 recovery status is `verified`; monitoring performs that verification using successful health checks.

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "default_agent": "oncall",
+  "mcp": {
+    "oncall": {
+      "type": "local",
+      "command": [
+        "node",
+        "--env-file-if-exists=.env.switch",
+        "services/integrations/src/oncall-mcp.js"
+      ],
+      "enabled": true,
+      "timeout": 90000
+    }
+  }
+}
