@@ -5,8 +5,24 @@ import {
   parseMonitoringEvent,
 } from "@oncall/shared/monitoring";
 
+const INCIDENT_SOURCES = ["monitoring", "team_report", "manual_dashboard"];
+const INCIDENT_SEVERITIES = ["low", "medium", "high", "critical"];
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function parseEnumQuery(value, allowed, name) {
+  if (value === undefined) return null;
+  if (typeof value !== "string") throw new Error(`${name} must be a single value.`);
+  const values = value.split(",");
+  if (
+    values.length === 0 ||
+    values.length > allowed.length ||
+    values.some((item) => !allowed.includes(item))
+  ) {
+    throw new Error(`${name} contains an unsupported value.`);
+  }
+  return values.length === 1 ? values[0] : values;
+}
 
 function parseIncidentQuery(query) {
   const activeValue = query.active;
@@ -21,24 +37,30 @@ function parseIncidentQuery(query) {
     throw new Error("limit must be an integer between 1 and 100.");
   }
 
-  let status = null;
-  if (query.status !== undefined) {
-    if (typeof query.status !== "string") throw new Error("status must be a single value.");
-    status = query.status.split(",");
-    if (status.length > INCIDENT_STATUSES.length || status.some((value) => !INCIDENT_STATUSES.includes(value))) {
-      throw new Error("status contains an unsupported incident status.");
+  let applicationId = null;
+  if (query.applicationId !== undefined) {
+    if (
+      typeof query.applicationId !== "string" ||
+      !/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(query.applicationId)
+    ) {
+      throw new Error("applicationId is invalid.");
     }
+    applicationId = query.applicationId;
   }
 
   return {
     active: activeValue === "true",
-    status: status?.length === 1 ? status[0] : status,
+    status: parseEnumQuery(query.status, INCIDENT_STATUSES, "status"),
+    source: parseEnumQuery(query.source, INCIDENT_SOURCES, "source"),
+    severity: parseEnumQuery(query.severity, INCIDENT_SEVERITIES, "severity"),
+    applicationId,
     limit,
   };
 }
 
 export function createApiApp({
   monitoringService,
+  incidentService,
   applicationId,
   applicationName,
   ingestToken,
@@ -49,6 +71,7 @@ export function createApiApp({
   logger,
 }) {
   if (!monitoringService) throw new Error("monitoringService is required.");
+  if (!incidentService) throw new Error("incidentService is required.");
 
   return createServiceApp({
     serviceName: "api",
@@ -64,8 +87,12 @@ export function createApiApp({
           endpoints: [
             "GET /api/v1/monitoring/status",
             "POST /api/v1/monitoring/checks",
+            "POST /api/v1/incidents",
             "GET /api/v1/incidents",
             "GET /api/v1/incidents/:incidentId",
+            "PATCH /api/v1/incidents/:incidentId",
+            "GET /api/v1/incidents/:incidentId/history",
+            "POST /api/v1/incidents/:incidentId/reports",
           ],
         });
       });
@@ -129,8 +156,142 @@ export function createApiApp({
           return;
         }
         res.setHeader("Cache-Control", "no-store");
-        const incidents = await monitoringService.listIncidents(query);
+        const incidents = await incidentService.listIncidents(query);
         res.json({ incidents, count: incidents.length });
+      });
+
+      app.post("/api/v1/incidents", async (req, res) => {
+        const body = req.body;
+        if (
+          !body ||
+          typeof body !== "object" ||
+          Array.isArray(body) ||
+          !["team_report", "manual_dashboard"].includes(body.source)
+        ) {
+          res.status(400).json({
+            error: {
+              code: "INVALID_INCIDENT",
+              message: "Incident source must be team_report or manual_dashboard.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+
+        try {
+          const result = await incidentService.createIncident(body);
+          res.status(result.created ? 201 : 200).json({ incident: result.incident });
+        } catch (error) {
+          res.status(400).json({
+            error: {
+              code: "INVALID_INCIDENT",
+              message: error.message,
+              requestId: req.requestId,
+            },
+          });
+        }
+      });
+
+      app.get("/api/v1/incidents/:incidentId/history", async (req, res) => {
+        if (!UUID_PATTERN.test(req.params.incidentId)) {
+          res.status(400).json({
+            error: {
+              code: "INVALID_INCIDENT_ID",
+              message: "Incident ID is invalid.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+        const events = await incidentService.getIncidentHistory(req.params.incidentId);
+        if (!events) {
+          res.status(404).json({
+            error: {
+              code: "INCIDENT_NOT_FOUND",
+              message: "Incident was not found.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+        res.setHeader("Cache-Control", "no-store");
+        res.json({ events, count: events.length });
+      });
+
+      app.post("/api/v1/incidents/:incidentId/reports", async (req, res) => {
+        if (!UUID_PATTERN.test(req.params.incidentId)) {
+          res.status(400).json({
+            error: {
+              code: "INVALID_INCIDENT_ID",
+              message: "Incident ID is invalid.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+        try {
+          const incident = await incidentService.linkReport(
+            req.params.incidentId,
+            req.body,
+          );
+          if (!incident) {
+            res.status(404).json({
+              error: {
+                code: "INCIDENT_NOT_FOUND",
+                message: "Incident was not found.",
+                requestId: req.requestId,
+              },
+            });
+            return;
+          }
+          res.status(201).json({ incident });
+        } catch (error) {
+          res.status(400).json({
+            error: {
+              code: "INVALID_REPORT",
+              message: error.message,
+              requestId: req.requestId,
+            },
+          });
+        }
+      });
+
+      app.patch("/api/v1/incidents/:incidentId", async (req, res) => {
+        if (!UUID_PATTERN.test(req.params.incidentId)) {
+          res.status(400).json({
+            error: {
+              code: "INVALID_INCIDENT_ID",
+              message: "Incident ID is invalid.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+        try {
+          const incident = await incidentService.updateIncident(
+            req.params.incidentId,
+            req.body,
+          );
+          if (!incident) {
+            res.status(404).json({
+              error: {
+                code: "INCIDENT_NOT_FOUND",
+                message: "Incident was not found.",
+                requestId: req.requestId,
+              },
+            });
+            return;
+          }
+          res.json({ incident });
+        } catch (error) {
+          res.status(409).json({
+            error: {
+              code: "INCIDENT_UPDATE_REJECTED",
+              message: error.message,
+              requestId: req.requestId,
+            },
+          });
+        }
       });
 
       app.get("/api/v1/incidents/:incidentId", async (req, res) => {
@@ -144,7 +305,7 @@ export function createApiApp({
           });
           return;
         }
-        const incident = await monitoringService.getIncident(req.params.incidentId);
+        const incident = await incidentService.getIncident(req.params.incidentId);
         if (!incident) {
           res.status(404).json({
             error: {

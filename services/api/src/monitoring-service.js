@@ -1,18 +1,6 @@
-import { randomUUID } from "node:crypto";
-import { INCIDENT_STATUSES } from "@oncall/shared/monitoring";
+import { createIncidentService } from "./incident-service.js";
 
-const ACTIVE_STATUSES = new Set(INCIDENT_STATUSES.filter((status) => status !== "resolved"));
 const MAX_INCIDENT_CHECKS = 20;
-
-function publicIncident(incident) {
-  if (!incident) return null;
-  const {
-    activeApplicationId,
-    lastProcessedCheckId,
-    ...visibleIncident
-  } = incident;
-  return visibleIncident;
-}
 
 function describeFailure(check) {
   if (check.failureReason === "http_status") {
@@ -27,8 +15,14 @@ export function createMonitoringService({
   repository,
   policy,
   clock = () => new Date(),
-  idFactory = randomUUID,
+  idFactory,
+  incidentService: sharedIncidentService,
 }) {
+  const incidentService = sharedIncidentService ?? createIncidentService({
+    repository,
+    clock,
+    ...(idFactory ? { idFactory } : {}),
+  });
   const pendingByApplication = new Map();
 
   function serialize(applicationId, operation) {
@@ -62,7 +56,7 @@ export function createMonitoringService({
         return {
           duplicate: true,
           state,
-          incident: publicIncident(await repository.getActiveIncident(applicationId)),
+          incident: await getActiveIncident(applicationId),
         };
       }
 
@@ -94,9 +88,7 @@ export function createMonitoringService({
       let incident = await repository.getActiveIncident(applicationId);
       if (isFailure && state.consecutiveFailures >= policy.failureThreshold) {
         if (!incident) {
-          const createdAt = clock().toISOString();
-          const newIncident = {
-            incidentId: idFactory(),
+          const result = await incidentService.createIncident({
             applicationId,
             applicationName,
             title: `${applicationName} is unavailable`,
@@ -104,64 +96,114 @@ export function createMonitoringService({
               `${applicationName} failed ${state.consecutiveFailures} consecutive health checks. ` +
               describeFailure(check),
             severity: "critical",
-            status: "open",
             source: "monitoring",
             startedAt: state.firstFailureAt ?? check.checkedAt,
             detectedAt: check.checkedAt,
+            detectionTimestamp: check.checkedAt,
             lastObservedFailure: check,
+            healthCheck: check,
             healthChecks: [check],
             failureCount: state.consecutiveFailures,
-            activeApplicationId: applicationId,
             lastProcessedCheckId: check.checkId,
-            createdAt,
-            updatedAt: createdAt,
-          };
-
-          try {
-            incident = await repository.createIncident(newIncident);
-          } catch (error) {
-            if (error?.code !== 11000) throw error;
-            incident = await repository.getActiveIncident(applicationId);
-          }
+          });
+          incident = await repository.findIncident(result.incident.incidentId);
         }
 
         if (incident && incident.lastProcessedCheckId !== check.checkId) {
-          const updatedAt = clock().toISOString();
-          incident = await repository.updateIncident(incident.incidentId, {
-            lastObservedFailure: check,
-            healthChecks: [...(incident.healthChecks ?? []), check].slice(-MAX_INCIDENT_CHECKS),
-            failureCount: state.consecutiveFailures,
-            lastProcessedCheckId: check.checkId,
-            updatedAt,
-          });
+          incident = await incidentService.updateFromSystem(
+            incident.incidentId,
+            {
+              lastObservedFailure: check,
+              healthCheck: check,
+              healthChecks: [...(incident.healthChecks ?? []), check].slice(-MAX_INCIDENT_CHECKS),
+              failureCount: state.consecutiveFailures,
+              lastProcessedCheckId: check.checkId,
+            },
+            {
+              author: "monitor",
+              eventType: "health_check_failed",
+              message: describeFailure(check),
+              metadata: {
+                checkId: check.checkId,
+                checkedAt: check.checkedAt,
+                failureReason: check.failureReason,
+                httpStatus: check.httpStatus,
+                latencyMs: check.latencyMs,
+                consecutiveFailures: state.consecutiveFailures,
+              },
+              timestamp: check.checkedAt,
+            },
+          );
+        } else if (incident) {
+          incident = await incidentService.getIncident(incident.incidentId);
         }
-      } else if (
-        !isFailure &&
-        incident &&
-        state.consecutiveSuccesses >= policy.recoveryThreshold
-      ) {
-        const resolvedAt = check.checkedAt;
-        const startedAt = Date.parse(incident.startedAt ?? incident.detectedAt);
-        incident = await repository.updateIncident(
-          incident.incidentId,
-          {
-            status: "resolved",
-            resolvedAt,
-            recoveryCheck: check,
-            outageDurationMs: Math.max(0, Date.parse(resolvedAt) - startedAt),
-            lastProcessedCheckId: check.checkId,
-            updatedAt: clock().toISOString(),
-          },
-          { clearActiveApplicationId: true },
-        );
+      } else if (!isFailure && incident) {
+        if (state.consecutiveSuccesses >= policy.recoveryThreshold) {
+          const resolvedAt = check.checkedAt;
+          const startedAt = Date.parse(incident.startedAt ?? incident.detectedAt);
+          incident = await incidentService.updateFromSystem(
+            incident.incidentId,
+            {
+              status: "resolved",
+              isActive: false,
+              recoveryStatus: "verified",
+              lastRecoveryCheck: check,
+              resolvedAt,
+              resolutionTimestamp: resolvedAt,
+              recoveryCheck: check,
+              outageDurationMs: Math.max(0, Date.parse(resolvedAt) - startedAt),
+              lastProcessedCheckId: check.checkId,
+            },
+            {
+              author: "monitor",
+              eventType: "recovery_verified",
+              message: `Application health verified by ${state.consecutiveSuccesses} consecutive successful checks.`,
+              metadata: {
+                checkId: check.checkId,
+                checkedAt: check.checkedAt,
+                consecutiveSuccessfulChecks: state.consecutiveSuccesses,
+                recoveryThreshold: policy.recoveryThreshold,
+              },
+              timestamp: check.checkedAt,
+            },
+          );
+        } else {
+          incident = await incidentService.updateFromSystem(
+            incident.incidentId,
+            {
+              recoveryStatus: "verifying",
+              lastRecoveryCheck: check,
+              lastProcessedCheckId: check.checkId,
+            },
+            {
+              author: "monitor",
+              eventType: "recovery_check_passed",
+              message: "A successful health check was recorded while recovery is being verified.",
+              metadata: {
+                checkId: check.checkId,
+                checkedAt: check.checkedAt,
+                consecutiveSuccessfulChecks: state.consecutiveSuccesses,
+                recoveryThreshold: policy.recoveryThreshold,
+              },
+              timestamp: check.checkedAt,
+            },
+          );
+        }
       }
 
       return {
         duplicate: false,
         state,
-        incident: publicIncident(incident),
+        incident: incident
+          ? await incidentService.getIncident(incident.incidentId)
+          : null,
       };
     });
+  }
+
+  async function getActiveIncident(applicationId) {
+    const incident = await repository.getActiveIncident(applicationId);
+    return incident ? incidentService.getIncident(incident.incidentId) : null;
   }
 
   async function getMonitoringStatus(applicationId, applicationName) {
@@ -199,12 +241,11 @@ export function createMonitoringService({
   }
 
   async function listIncidents(options) {
-    const incidents = await repository.listIncidents(options);
-    return incidents.map(publicIncident);
+    return incidentService.listIncidents(options);
   }
 
   async function getIncident(incidentId) {
-    return publicIncident(await repository.findIncident(incidentId));
+    return incidentService.getIncident(incidentId);
   }
 
   return Object.freeze({
@@ -214,5 +255,3 @@ export function createMonitoringService({
     getIncident,
   });
 }
-
-export { ACTIVE_STATUSES };

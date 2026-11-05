@@ -15,7 +15,9 @@ function getApiBaseUrl(env) {
   return url;
 }
 
-async function getApiJson(path, {
+export async function requestIncidentApi(path, {
+  method = "GET",
+  body,
   env = process.env,
   fetchImpl = fetch,
   timeoutMs = 3_000,
@@ -25,7 +27,12 @@ async function getApiJson(path, {
   let response;
   try {
     response = await fetchImpl(endpoint, {
-      headers: { accept: "application/json" },
+      method,
+      headers: {
+        accept: "application/json",
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       cache: "no-store",
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -33,12 +40,22 @@ async function getApiJson(path, {
     throw new Error("The incident API could not be reached.");
   }
 
-  if (!response.ok) throw new Error("The incident API returned an error.");
   try {
-    return await response.json();
+    return {
+      status: response.status,
+      payload: await response.json(),
+    };
   } catch {
     throw new Error("The incident API returned an invalid response.");
   }
+}
+
+async function getApiJson(path, options) {
+  const result = await requestIncidentApi(path, options);
+  if (result.status < 200 || result.status >= 300) {
+    throw new Error("The incident API returned an error.");
+  }
+  return result.payload;
 }
 
 export function getMonitoringStatus(options) {
@@ -47,6 +64,37 @@ export function getMonitoringStatus(options) {
 
 export function getOpenIncidents(options) {
   return getApiJson("incidents?active=true&limit=50", options);
+}
+
+export function getIncidents({
+  filters = {},
+  ...options
+} = {}) {
+  const query = new URLSearchParams({ limit: "100", ...filters });
+  return getApiJson(`incidents?${query.toString()}`, options);
+}
+
+export function getIncident(incidentId, options) {
+  return getApiJson(`incidents/${encodeURIComponent(incidentId)}`, options);
+}
+
+export function getIncidentHistory(incidentId, options) {
+  return getApiJson(
+    `incidents/${encodeURIComponent(incidentId)}/history`,
+    options,
+  );
+}
+
+export async function proxyIncidentApiRequest(path, init = {}, options) {
+  const result = await requestIncidentApi(path, {
+    ...options,
+    method: init.method ?? "GET",
+    body: init.body,
+  });
+  return Response.json(result.payload, {
+    status: result.status,
+    headers: { "Cache-Control": "no-store" },
+  });
 }
 
 export async function getDashboardMonitoringData(options) {

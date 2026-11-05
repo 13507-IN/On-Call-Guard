@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
 function formatTimestamp(timestamp) {
@@ -62,7 +63,9 @@ function IncidentRow({ incident }) {
   return (
     <li className="incident-row">
       <div className="incident-identity">
-        <span className="incident-title">{incident.title}</span>
+        <Link className="incident-title incident-title-link" href={`/incidents/${incident.incidentId}`}>
+          {incident.title}
+        </Link>
         <span className="incident-description">{incident.description}</span>
         <span className="incident-id">{incident.incidentId}</span>
       </div>
@@ -78,7 +81,7 @@ function IncidentRow({ incident }) {
       </div>
       <div className="incident-cell">
         <span className="column-label">Source</span>
-        <span>{incident.source}</span>
+        <span>{humanize(incident.source)}</span>
       </div>
       <div className="incident-cell">
         <span className="column-label">Status</span>

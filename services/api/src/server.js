@@ -4,6 +4,7 @@ import { parsePort } from "@oncall/shared/port";
 import { readMonitorConfig } from "@oncall/shared/monitoring";
 import { createApiApp } from "./app.js";
 import { createMongoIncidentRepository } from "./incident-repository.js";
+import { createIncidentService } from "./incident-service.js";
 import { createMonitoringService } from "./monitoring-service.js";
 import { startService } from "@oncall/shared/http-service";
 
@@ -22,9 +23,15 @@ async function startApi() {
     const database = client.db();
     const repository = createMongoIncidentRepository(database);
     await repository.initialize();
-    const monitoringService = createMonitoringService({ repository, policy: config });
+    const incidentService = createIncidentService({ repository });
+    const monitoringService = createMonitoringService({
+      repository,
+      policy: config,
+      incidentService,
+    });
     const app = createApiApp({
       monitoringService,
+      incidentService,
       applicationId: config.applicationId,
       applicationName: config.applicationName,
       ingestToken: config.ingestToken,

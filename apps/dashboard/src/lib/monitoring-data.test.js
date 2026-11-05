@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   getDashboardMonitoringData,
+  getIncidents,
   getMonitoringStatus,
   getOpenIncidents,
 } from "./monitoring-data.js";
@@ -88,4 +89,20 @@ test("open incident client requests only active incidents", async () => {
     },
   });
   assert.equal(requestedUrl, "http://localhost:4100/api/v1/incidents?active=true&limit=50");
+});
+
+test("incident list client forwards filter values to the backend API", async () => {
+  let requestedUrl = "";
+  await getIncidents({
+    filters: { status: "investigating", source: "team_report", severity: "high" },
+    env: { API_URL: "http://localhost:4100" },
+    fetchImpl: async (url) => {
+      requestedUrl = url.href;
+      return Response.json({ incidents: [], count: 0 });
+    },
+  });
+  assert.equal(
+    requestedUrl,
+    "http://localhost:4100/api/v1/incidents?limit=100&status=investigating&source=team_report&severity=high",
+  );
 });

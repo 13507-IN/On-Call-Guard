@@ -1,12 +1,12 @@
 # On-call Incident Assistant
 
-Prompt 3 adds continuous health monitoring and automatic incident creation to the existing
-versioned demo application. The independent monitor checks the demo app's readiness endpoint,
-submits sanitized results to the REST API, and the API persists check history and incident state
-in MongoDB. The dashboard shows current health, monitor freshness, response time, and open incidents.
+Prompt 4 adds unified incident management to the existing monitoring system. Monitoring-detected
+outages, dashboard reports, and simulated teammate reports use one incident service and MongoDB
+collection. The dashboard lists and filters incidents, preserves report details, and shows each
+incident's persistent event history.
 
-AI diagnosis, manual incident reporting, Telegram, and recovery execution are not part of this stage.
-The triage and executor workspaces remain service shells.
+The independent monitor and demo application from Prompt 3 remain intact. AI diagnosis, actual Slack
+or Discord integration, Telegram, approval workflows, and recovery execution are not part of this stage.
 
 ## Requirements
 
@@ -41,6 +41,7 @@ For local MongoDB, the example URI expects a server on `127.0.0.1:27017`. Altern
 | API descriptor | http://localhost:4100/api/v1 |
 | Monitoring status | http://localhost:4100/api/v1/monitoring/status |
 | Active incidents | http://localhost:4100/api/v1/incidents?active=true |
+| Incident history | http://localhost:3002/incidents |
 | Demo application | http://localhost:4101 |
 | Monitor service status | http://localhost:4102/api/v1/status |
 | Triage service shell | http://localhost:4103 |
@@ -96,12 +97,13 @@ npm run build
 ```
 
 The automated suite covers health responses, HTTP 500, timeout/network failures, three-failure
-detection, duplicate check and incident handling, recovery verification, API validation, and the
-dashboard's monitoring data client.
+detection, incident deduplication and recovery verification, dashboard and teammate incident
+creation, report linking, timeline retrieval, status validation, and dashboard API helpers.
 
 ## Service responsibilities
 
-See [docs/architecture.md](docs/architecture.md) for the request flow and [docs/monitoring.md](docs/monitoring.md)
-for configuration and API behavior. The existing demo application is described in
+See [docs/architecture.md](docs/architecture.md) for the request flow, [docs/incident-management.md](docs/incident-management.md)
+for incident fields and API behavior, and [docs/monitoring.md](docs/monitoring.md)
+for monitoring configuration. The existing demo application is described in
 [docs/demo-app.md](docs/demo-app.md). The dashboard visual direction is recorded in
 [docs/dashboard-design.md](docs/dashboard-design.md).
