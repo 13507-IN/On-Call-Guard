@@ -1,12 +1,13 @@
 # On-call Incident Assistant
 
-Prompt 4 adds unified incident management to the existing monitoring system. Monitoring-detected
-outages, dashboard reports, and simulated teammate reports use one incident service and MongoDB
-collection. The dashboard lists and filters incidents, preserves report details, and shows each
-incident's persistent event history.
+Prompt 5 adds authenticated teammate incident reporting to the unified incident system. Monitoring
+alerts and teammate reports share the same service, incident records, dashboard, and persistent
+timeline. Reporter identities for new reports are resolved from server-side bearer-token
+configuration, not from client-supplied names.
 
 The independent monitor and demo application from Prompt 3 remain intact. AI diagnosis, actual Slack
-or Discord integration, Telegram, approval workflows, and recovery execution are not part of this stage.
+or Discord integration, Telegram, approval workflows, and recovery execution are not part of this
+stage.
 
 ## Requirements
 
@@ -27,7 +28,8 @@ npm run dev
 The development command starts the demo app, API, monitor, existing triage/executor shells, and
 dashboard as local Node.js processes. Before starting them, make sure MongoDB is running and that
 `MONGODB_URI` in `.env` points to it. The demo app and API use the same database; the monitor sends
-checks to the API using the local development token. Stop the Node.js processes with `Ctrl+C`.
+checks to the API using its local development token. Incident reports require a teammate reporting
+token configured in `TEAM_REPORTER_TOKENS`. Stop the Node.js processes with `Ctrl+C`.
 
 For local MongoDB, the example URI expects a server on `127.0.0.1:27017`. Alternatively, set
 `MONGODB_URI` to a hosted MongoDB connection string. Keep credentials out of source control.
@@ -55,7 +57,7 @@ action.
 
 ## Configuration
 
-Copy `.env.example` to `.env` and adjust the monitoring variables as needed:
+Copy `.env.example` to `.env` and adjust the monitoring and reporting variables as needed:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -68,9 +70,15 @@ Copy `.env.example` to `.env` and adjust the monitoring variables as needed:
 | `MONITOR_FAILURE_THRESHOLD` | `3` | Consecutive failures before opening an incident |
 | `MONITOR_RECOVERY_THRESHOLD` | `2` | Consecutive successes before resolving it |
 | `MONITOR_INGEST_TOKEN` | local example value | Bearer token shared only by monitor and API |
+| `TEAM_REPORTER_TOKENS` | local example mapping | Server-only JSON mapping bearer tokens to reporter `id` and `name` |
 
 The example ingestion token is for local development; replace it with a unique secret before
-sharing or deploying the stack. The dashboard does not receive this token.
+sharing or deploying the stack. Replace the example teammate token as well. Generate a token with
+`node -e "console.log(require('node:crypto').randomBytes(32).toString('base64url'))"`, then map it
+to a stable teammate ID and display name in the `.env` JSON. The dashboard asks the teammate for
+their token when submitting; it is sent in an authorization header, is not persisted in browser
+storage, and is never included in the incident body. Use HTTPS outside local development. Do not
+prefix `TEAM_REPORTER_TOKENS` with `NEXT_PUBLIC_`.
 
 Dashboard service URLs and ports can also be changed using the `*_URL`, `*_PORT`,
 `DASHBOARD_PORT`, and `HEALTH_CHECK_TIMEOUT_MS` variables.
@@ -97,8 +105,9 @@ npm run build
 ```
 
 The automated suite covers health responses, HTTP 500, timeout/network failures, three-failure
-detection, incident deduplication and recovery verification, dashboard and teammate incident
-creation, report linking, timeline retrieval, status validation, and dashboard API helpers.
+detection, incident deduplication and recovery verification, authenticated teammate reporting,
+server-assigned incident source, reporter identity preservation, invalid applications, report
+linking, timeline retrieval, status validation, and dashboard API helpers.
 
 ## Service responsibilities
 

@@ -25,7 +25,11 @@ export async function POST(request, context) {
   try {
     return await proxyIncidentApiRequest(
       `incidents/${encodeURIComponent(incidentId)}/reports`,
-      { method: "POST", body },
+      {
+        method: "POST",
+        body,
+        authorization: request.headers.get("authorization"),
+      },
     );
   } catch {
     return Response.json(

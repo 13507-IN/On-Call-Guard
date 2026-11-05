@@ -6,6 +6,7 @@ import { createApiApp } from "./app.js";
 import { createMongoIncidentRepository } from "./incident-repository.js";
 import { createIncidentService } from "./incident-service.js";
 import { createMonitoringService } from "./monitoring-service.js";
+import { parseTeamReporterCredentials } from "./team-report-auth.js";
 import { startService } from "@oncall/shared/http-service";
 
 const serviceName = "api";
@@ -15,6 +16,9 @@ async function startApi() {
   let client;
   try {
     const config = readMonitorConfig(process.env);
+    const teamReporterCredentials = parseTeamReporterCredentials(
+      process.env.TEAM_REPORTER_TOKENS,
+    );
     const mongodbUri =
       process.env.MONGODB_URI ||
       "mongodb://127.0.0.1:27017/oncall_demo?directConnection=true";
@@ -35,6 +39,7 @@ async function startApi() {
       applicationId: config.applicationId,
       applicationName: config.applicationName,
       ingestToken: config.ingestToken,
+      teamReporterCredentials,
       readinessCheck: async () => {
         try {
           await database.command({ ping: 1 });

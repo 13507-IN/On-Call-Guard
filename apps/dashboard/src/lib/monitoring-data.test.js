@@ -5,6 +5,7 @@ import {
   getIncidents,
   getMonitoringStatus,
   getOpenIncidents,
+  proxyIncidentApiRequest,
 } from "./monitoring-data.js";
 
 test("dashboard API client uses the configured backend and no-store requests", async () => {
@@ -105,4 +106,36 @@ test("incident list client forwards filter values to the backend API", async () 
     requestedUrl,
     "http://localhost:4100/api/v1/incidents?limit=100&status=investigating&source=team_report&severity=high",
   );
+});
+
+test("incident-report proxy forwards the bearer token without moving it into the payload or URL", async () => {
+  const token = "local-team-token-change-before-sharing-0001";
+  let request;
+  const response = await proxyIncidentApiRequest(
+    "incidents/reports",
+    {
+      method: "POST",
+      body: {
+        applicationId: "demo-app",
+        title: "Checkout failed",
+        description: "A teammate report.",
+      },
+      authorization: `Bearer ${token}`,
+    },
+    {
+      env: { API_URL: "http://api:4100" },
+      fetchImpl: async (url, options) => {
+        request = { url: url.href, options };
+        return Response.json(
+          { incident: { incidentId: "incident-id" } },
+          { status: 201 },
+        );
+      },
+    },
+  );
+
+  assert.equal(response.status, 201);
+  assert.equal(request.url, "http://api:4100/api/v1/incidents/reports");
+  assert.equal(request.options.headers.authorization, `Bearer ${token}`);
+  assert.equal(request.options.body.includes(token), false);
 });

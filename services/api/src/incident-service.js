@@ -50,28 +50,37 @@ function parseReporter(input, source) {
 }
 
 function parseTeamReport(input) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new Error("report is required for teammate reports.");
+  if (input === undefined || input === null) return null;
+  if (typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("report must be an object.");
   }
-  if (!REPORT_PLATFORMS.has(input.platform)) {
+
+  const platform = input.platform == null || input.platform === ""
+    ? null
+    : input.platform;
+  if (platform !== null && !REPORT_PLATFORMS.has(platform)) {
     throw new Error("report.platform must be slack, discord, or other.");
   }
 
-  const messageTimestamp = input.messageTimestamp;
-  const parsedTimestamp = typeof messageTimestamp === "string"
-    ? Date.parse(messageTimestamp)
-    : Number.NaN;
-  if (!Number.isFinite(parsedTimestamp)) {
-    throw new Error("report.messageTimestamp must be a valid timestamp.");
+  let messageTimestamp = null;
+  if (input.messageTimestamp !== undefined && input.messageTimestamp !== null && input.messageTimestamp !== "") {
+    const parsedTimestamp = typeof input.messageTimestamp === "string"
+      ? Date.parse(input.messageTimestamp)
+      : Number.NaN;
+    if (!Number.isFinite(parsedTimestamp)) {
+      throw new Error("report.messageTimestamp must be a valid timestamp.");
+    }
+    messageTimestamp = new Date(parsedTimestamp).toISOString();
   }
 
-  return {
+  const report = {
     reportId: null,
-    originalMessage: requiredText(input.originalMessage, "report.originalMessage", 8_000),
-    platform: input.platform,
-    channelReference: requiredText(input.channelReference, "report.channelReference", 300),
-    messageTimestamp: new Date(parsedTimestamp).toISOString(),
+    originalMessage: optionalText(input.originalMessage, "report.originalMessage", 8_000),
+    platform,
+    channelReference: optionalText(input.channelReference, "report.channelReference", 300),
+    messageTimestamp,
   };
+  return Object.values(report).some((value) => value !== null) ? report : null;
 }
 
 function makeEvent({
@@ -173,7 +182,7 @@ export function createIncidentService({
         ? "Incident reported by a teammate."
         : "Incident reported from the dashboard.";
     const initialEvent = createEvent(incidentId, {
-      author: source === "monitoring" ? "monitor" : "system",
+      author: source === "monitoring" ? "monitor" : reporter?.name ?? "system",
       eventType: "incident_created",
       message: initialMessage,
       timestamp: now,
@@ -334,8 +343,12 @@ export function createIncidentService({
       throw new Error("Report data must be an object.");
     }
     const reporter = parseReporter(input.reporter, "team_report");
+    const parsedReport = parseTeamReport(input.report);
+    if (!parsedReport?.originalMessage) {
+      throw new Error("report.originalMessage is required to link a teammate report.");
+    }
     const report = {
-      ...parseTeamReport(input.report),
+      ...parsedReport,
       reportId: idFactory(),
     };
     const current = await repository.findIncident(incidentId);

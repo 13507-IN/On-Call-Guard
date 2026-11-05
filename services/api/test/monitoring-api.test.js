@@ -6,8 +6,14 @@ import { createApiApp } from "../src/app.js";
 import { createIncidentService } from "../src/incident-service.js";
 import { createMongoIncidentRepository } from "../src/incident-repository.js";
 import { createMonitoringService } from "../src/monitoring-service.js";
+import { parseTeamReporterCredentials } from "../src/team-report-auth.js";
 
 const token = "test-monitor-ingest-token-at-least-24";
+const teamReportToken = "test-team-reporter-token-with-more-than-32-chars";
+const authenticatedReporter = { id: "user-17", name: "Sam" };
+const teamReporterCredentials = parseTeamReporterCredentials(
+  JSON.stringify({ [teamReportToken]: authenticatedReporter }),
+);
 const policy = {
   intervalMs: 1_000,
   timeoutMs: 100,
@@ -185,6 +191,28 @@ async function postCheck(baseUrl, check, headers = {}) {
   });
 }
 
+async function postIncident(baseUrl, body, authorization = `Bearer ${teamReportToken}`) {
+  return fetch(`${baseUrl}/api/v1/incidents`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(authorization ? { authorization } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+async function postTeamReport(baseUrl, body, authorization = `Bearer ${teamReportToken}`) {
+  return fetch(`${baseUrl}/api/v1/incidents/reports`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(authorization ? { authorization } : {}),
+    },
+    body: JSON.stringify(body),
+  });
+}
+
 function makeApp() {
   const repository = createMemoryRepository();
   const incidentService = createIncidentService({ repository });
@@ -202,6 +230,7 @@ function makeApp() {
       applicationId: "demo-app",
       applicationName: "Demo application",
       ingestToken: token,
+      teamReporterCredentials,
     }),
   };
 }
@@ -319,50 +348,120 @@ test("incident detail and query validation return safe, useful API responses", a
   assert.equal((await fetch(`${baseUrl}/api/v1/incidents?limit=1000`)).status, 400);
 });
 
+test("incident reporting requires a valid token, validates required fields and registered application", async (t) => {
+  const { app, repository } = makeApp();
+  const baseUrl = await startServer(app, t);
+  const validReport = {
+    applicationId: "demo-app",
+    title: "Checkout is failing",
+    description: "Teammates report that checkout requests are failing.",
+  };
+
+  const missingToken = await postTeamReport(baseUrl, validReport, null);
+  const invalidToken = await postTeamReport(baseUrl, validReport, "Bearer invalid");
+  assert.equal(missingToken.status, 401);
+  assert.equal(invalidToken.status, 401);
+  assert.equal(missingToken.headers.get("www-authenticate"), 'Bearer realm="incident-reporting"');
+  assert.equal((await repository.listIncidents({ limit: 50 })).length, 0);
+
+  const missingTitle = await postTeamReport(baseUrl, { ...validReport, title: " " });
+  const missingDescription = await postTeamReport(baseUrl, { ...validReport, description: "" });
+  const invalidApplication = await postTeamReport(baseUrl, {
+    ...validReport,
+    applicationId: "unregistered-app",
+  });
+  assert.equal(missingTitle.status, 400);
+  assert.equal(missingDescription.status, 400);
+  assert.equal(invalidApplication.status, 400);
+  assert.equal((await invalidApplication.json()).error.code, "INVALID_APPLICATION");
+  assert.equal((await repository.listIncidents({ limit: 50 })).length, 0);
+});
+
+test("team-report endpoint assigns its source instead of trusting the request body", async (t) => {
+  const { app } = makeApp();
+  const baseUrl = await startServer(app, t);
+  const response = await postTeamReport(baseUrl, {
+    source: "monitoring",
+    applicationId: "demo-app",
+    title: "Worker queue is stalled",
+    description: "A teammate reported that queued jobs are not completing.",
+  });
+
+  assert.equal(response.status, 201);
+  const { incident } = await response.json();
+  assert.equal(incident.source, "team_report");
+  assert.deepEqual(incident.reporter, authenticatedReporter);
+});
+
+test("repeated teammate submissions create separate incidents without title-based merging", async (t) => {
+  const { app, repository } = makeApp();
+  const baseUrl = await startServer(app, t);
+  const body = {
+    applicationId: "demo-app",
+    title: "Repeated report",
+    description: "This exact report is submitted twice.",
+    reporter: { id: "forged-id", name: "Forged Reporter" },
+  };
+
+  const firstResponse = await postTeamReport(baseUrl, body);
+  const secondResponse = await postTeamReport(baseUrl, body);
+  assert.equal(firstResponse.status, 201);
+  assert.equal(secondResponse.status, 201);
+  const first = (await firstResponse.json()).incident;
+  const second = (await secondResponse.json()).incident;
+
+  assert.notEqual(first.incidentId, second.incidentId);
+  assert.deepEqual(first.reporter, authenticatedReporter);
+  assert.deepEqual(second.reporter, authenticatedReporter);
+  assert.deepEqual(first.reports, []);
+  assert.equal((await repository.listIncidents({ limit: 50 })).length, 2);
+});
+
 test("dashboard and teammate reports create records in the same incident system", async (t) => {
   const { app, repository } = makeApp();
   const baseUrl = await startServer(app, t);
   const dashboardResponse = await fetch(`${baseUrl}/api/v1/incidents`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${teamReportToken}`,
+    },
     body: JSON.stringify({
       source: "manual_dashboard",
       applicationId: "demo-app",
-      applicationName: "Demo application",
+      applicationName: "Client-supplied name is ignored",
       title: "Checkout page is slow",
       description: "Customers report long waits during checkout.",
-      reporter: { name: "Ari" },
+      reporter: { id: "forged-id", name: "Forged Reporter" },
     }),
   });
   assert.equal(dashboardResponse.status, 201);
   const dashboardIncident = (await dashboardResponse.json()).incident;
 
-  const teamResponse = await fetch(`${baseUrl}/api/v1/incidents`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
+  const teamResponse = await postTeamReport(baseUrl, {
       source: "team_report",
       applicationId: "demo-app",
       applicationName: "Demo application",
       title: "Checkout errors reported in support",
       description: "A teammate reported customer-facing checkout errors.",
-      reporter: { id: "u-17", name: "Sam" },
+      reporter: { id: "forged-id", name: "Forged Reporter" },
       report: {
         originalMessage: "Several customers are seeing checkout errors.",
         platform: "slack",
         channelReference: "support-incidents",
         messageTimestamp: "2026-11-05T06:00:00.000Z",
       },
-    }),
   });
   assert.equal(teamResponse.status, 201);
   const teamIncident = (await teamResponse.json()).incident;
 
   assert.notEqual(dashboardIncident.incidentId, teamIncident.incidentId);
   assert.equal(dashboardIncident.source, "manual_dashboard");
-  assert.equal(dashboardIncident.reporter.name, "Ari");
+  assert.deepEqual(dashboardIncident.reporter, authenticatedReporter);
+  assert.equal(dashboardIncident.applicationName, "Demo application");
   assert.equal(teamIncident.source, "team_report");
-  assert.deepEqual(teamIncident.reporter, { id: "u-17", name: "Sam" });
+  assert.deepEqual(teamIncident.reporter, authenticatedReporter);
+  assert.equal(teamIncident.timeline[0].author, authenticatedReporter.name);
   assert.equal(teamIncident.reports[0].originalMessage, "Several customers are seeing checkout errors.");
   assert.equal(teamIncident.reports[0].platform, "slack");
   assert.equal(teamIncident.reports[0].channelReference, "support-incidents");
@@ -384,27 +483,26 @@ test("dashboard and teammate reports create records in the same incident system"
 test("report linking and incident history preserve events without title-based merging", async (t) => {
   const { app } = makeApp();
   const baseUrl = await startServer(app, t);
-  const create = (source, reporterName) => fetch(`${baseUrl}/api/v1/incidents`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      source,
+  const create = (reporterName) => postIncident(baseUrl, {
+      source: "manual_dashboard",
       applicationId: "demo-app",
       applicationName: "Demo application",
       title: "Database latency",
       description: "Database requests are responding slowly.",
       reporter: { name: reporterName },
-    }),
   });
-  const first = (await (await create("manual_dashboard", "Ari")).json()).incident;
-  const second = (await (await create("manual_dashboard", "Sam")).json()).incident;
+  const first = (await (await create("Ari")).json()).incident;
+  const second = (await (await create("Sam")).json()).incident;
   assert.notEqual(first.incidentId, second.incidentId);
 
   const linkResponse = await fetch(
     `${baseUrl}/api/v1/incidents/${first.incidentId}/reports`,
     {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${teamReportToken}`,
+      },
       body: JSON.stringify({
         reporter: { id: "u-22", name: "Lee" },
         report: {
@@ -444,7 +542,10 @@ test("status changes are recorded and cannot resolve an unverified incident", as
   const baseUrl = await startServer(app, t);
   const created = await fetch(`${baseUrl}/api/v1/incidents`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${teamReportToken}`,
+    },
     body: JSON.stringify({
       source: "manual_dashboard",
       applicationId: "demo-app",

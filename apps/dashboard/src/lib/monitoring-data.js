@@ -18,6 +18,7 @@ function getApiBaseUrl(env) {
 export async function requestIncidentApi(path, {
   method = "GET",
   body,
+  authorization,
   env = process.env,
   fetchImpl = fetch,
   timeoutMs = 3_000,
@@ -31,6 +32,9 @@ export async function requestIncidentApi(path, {
       headers: {
         accept: "application/json",
         ...(body === undefined ? {} : { "content-type": "application/json" }),
+        ...(typeof authorization === "string" && authorization.length <= 512
+          ? { authorization }
+          : {}),
       },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       cache: "no-store",
@@ -90,6 +94,7 @@ export async function proxyIncidentApiRequest(path, init = {}, options) {
     ...options,
     method: init.method ?? "GET",
     body: init.body,
+    authorization: init.authorization,
   });
   return Response.json(result.payload, {
     status: result.status,

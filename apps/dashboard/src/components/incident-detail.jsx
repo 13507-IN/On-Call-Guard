@@ -46,11 +46,15 @@ function LinkedReports({ reports = [] }) {
       {reports.map((report) => (
         <li key={report.reportId}>
           <div className="linked-report-heading">
-            <strong>{humanize(report.platform)}</strong>
-            <time dateTime={report.messageTimestamp}>{formatTimestamp(report.messageTimestamp)}</time>
+            <strong>{report.platform ? humanize(report.platform) : "Teammate report"}</strong>
+            {report.messageTimestamp ? (
+              <time dateTime={report.messageTimestamp}>
+                {formatTimestamp(report.messageTimestamp)}
+              </time>
+            ) : null}
           </div>
-          <p>{report.originalMessage}</p>
-          <span>{report.channelReference}</span>
+          <p>{report.originalMessage || "No original message was attached."}</p>
+          {report.channelReference ? <span>{report.channelReference}</span> : null}
         </li>
       ))}
     </ul>
@@ -67,24 +71,26 @@ function LinkReportForm({ incidentId, onLinked }) {
     setError("");
     const form = event.currentTarget;
     const data = new FormData(form);
-    const timestamp = data.get("messageTimestamp");
+    const timestamp = String(data.get("messageTimestamp") ?? "").trim();
+    const platform = String(data.get("platform") ?? "").trim();
+    const channelReference = String(data.get("channelReference") ?? "").trim();
+    const originalMessage = String(data.get("originalMessage") ?? "").trim();
 
     try {
       const body = {
-        reporter: {
-          name: data.get("reporterName"),
-          ...(data.get("reporterId") ? { id: data.get("reporterId") } : {}),
-        },
         report: {
-          platform: data.get("platform"),
-          originalMessage: data.get("originalMessage"),
-          channelReference: data.get("channelReference"),
-          messageTimestamp: new Date(timestamp).toISOString(),
+          ...(platform ? { platform } : {}),
+          originalMessage,
+          ...(channelReference ? { channelReference } : {}),
+          ...(timestamp ? { messageTimestamp: new Date(timestamp).toISOString() } : {}),
         },
       };
       const response = await fetch(`/api/incidents/${encodeURIComponent(incidentId)}/reports`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${String(data.get("reportingToken") ?? "").trim()}`,
+        },
         body: JSON.stringify(body),
       });
       const payload = await response.json();
@@ -105,36 +111,42 @@ function LinkReportForm({ incidentId, onLinked }) {
       <summary>Link a teammate report</summary>
       <form className="incident-form" onSubmit={submit}>
         <p className="incident-form-note">
-          Reporter identity is supplied by the person entering this record and is not verified.
+          The API resolves the reporter from this token. The original message is required to link a
+          report; other communication details are optional.
         </p>
         <div className="incident-form-grid">
           <label>
-            Reporter name
-            <input name="reporterName" required maxLength={120} />
-          </label>
-          <label>
-            Reporter ID (optional)
-            <input name="reporterId" maxLength={200} />
+            Teammate reporting token
+            <input
+              name="reportingToken"
+              type="password"
+              required
+              minLength={32}
+              maxLength={256}
+              autoComplete="off"
+              spellCheck="false"
+            />
           </label>
           <label>
             Communication platform
-            <select name="platform" defaultValue="slack">
+            <select name="platform" defaultValue="">
+              <option value="">Not specified</option>
               <option value="slack">Slack</option>
               <option value="discord">Discord</option>
               <option value="other">Other</option>
             </select>
           </label>
           <label>
-            Channel or conversation
-            <input name="channelReference" required maxLength={300} />
+            Channel, message, or conversation reference (optional)
+            <input name="channelReference" maxLength={300} />
           </label>
           <label className="incident-form-wide">
             Original message
             <textarea name="originalMessage" required maxLength={8000} rows={3} />
           </label>
           <label>
-            Message timestamp
-            <input name="messageTimestamp" type="datetime-local" required />
+            Message time (optional)
+            <input name="messageTimestamp" type="datetime-local" />
           </label>
         </div>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
@@ -262,8 +274,8 @@ export default function IncidentDetail({
         </button>
       </div>
       <p className="incident-auth-note">
-        This local dashboard has no user authentication configured. Reporter names and dashboard
-        status changes are not identity-verified.
+        Incident reports and linked teammate messages use API-mapped reporting tokens for reporter
+        identity. Dashboard status changes remain unauthenticated in this MVP.
       </p>
 
       <section className="incident-detail-panel" aria-labelledby="incident-summary-heading">

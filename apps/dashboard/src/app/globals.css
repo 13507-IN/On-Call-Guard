@@ -981,6 +981,45 @@ a:focus-visible {
   color: var(--faint);
 }
 
+.incident-form-help {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.45;
+}
+
+.incident-report-context {
+  min-width: 0;
+}
+
+.incident-report-context > summary {
+  display: flex;
+  min-height: 38px;
+  align-items: center;
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.incident-report-context[open] > summary {
+  margin-bottom: 12px;
+}
+
+.incident-report-success {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-left: 3px solid var(--positive);
+  background: var(--positive-bg);
+  color: var(--positive-ink);
+  font-size: 13px;
+}
+
+.incident-report-success a {
+  font-weight: 600;
+  text-underline-offset: 2px;
+}
+
 .incident-form-wide {
   grid-column: 1 / -1;
 }

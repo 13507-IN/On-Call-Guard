@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 
 const STATUS_OPTIONS = [
   "open",
@@ -82,53 +81,50 @@ function IncidentTable({ incidents }) {
 }
 
 function IncidentReportForm({ application, onCreated }) {
-  const [source, setSource] = useState("manual_dashboard");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [createdIncident, setCreatedIncident] = useState(null);
 
   async function submitReport(event) {
     event.preventDefault();
     const form = event.currentTarget;
     setError("");
+    setCreatedIncident(null);
     setSubmitting(true);
     const formData = new FormData(form);
-    const isTeamReport = source === "team_report";
-    const timestamp = formData.get("messageTimestamp");
+    const timestamp = String(formData.get("messageTimestamp") ?? "").trim();
+    const platform = String(formData.get("platform") ?? "").trim();
+    const channelReference = String(formData.get("channelReference") ?? "").trim();
+    const originalMessage = String(formData.get("originalMessage") ?? "").trim();
 
     try {
       const body = {
-        source,
         applicationId: formData.get("applicationId"),
-        applicationName: formData.get("applicationName"),
         title: formData.get("title"),
         description: formData.get("description"),
         severity: formData.get("severity"),
-        reporter: {
-          name: formData.get("reporterName"),
-          ...(isTeamReport && formData.get("reporterId")
-            ? { id: formData.get("reporterId") }
-            : {}),
-        },
-        ...(isTeamReport
-          ? {
-            report: {
-              platform: formData.get("platform"),
-              originalMessage: formData.get("originalMessage"),
-              channelReference: formData.get("channelReference"),
-              messageTimestamp: new Date(timestamp).toISOString(),
-            },
-          }
-          : {}),
       };
-      const response = await fetch("/api/incidents", {
+      if (platform || channelReference || originalMessage || timestamp) {
+        body.report = {
+          ...(platform ? { platform } : {}),
+          ...(channelReference ? { channelReference } : {}),
+          ...(originalMessage ? { originalMessage } : {}),
+          ...(timestamp ? { messageTimestamp: new Date(timestamp).toISOString() } : {}),
+        };
+      }
+      const response = await fetch("/api/incidents/reports", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${String(formData.get("reportingToken") ?? "").trim()}`,
+        },
         body: JSON.stringify(body),
       });
       const payload = await response.json();
       if (!response.ok) {
         throw new Error(payload.error?.message ?? "The incident could not be created.");
       }
+      setCreatedIncident(payload.incident);
       await onCreated(payload.incident);
       form.reset();
     } catch (cause) {
@@ -143,15 +139,25 @@ function IncidentReportForm({ application, onCreated }) {
       <summary>Report an incident</summary>
       <form className="incident-form" onSubmit={submitReport}>
         <p className="incident-form-note">
-          Reporter names are entered by the person submitting this form and are not authenticated.
-          This form records the report; it does not trigger recovery.
+          Your reporting token identifies you to the API. It is sent only with this request and is
+          never stored in the incident. Reporting records an incident; it does not trigger recovery.
         </p>
         <div className="incident-form-grid">
           <label>
-            Report type
-            <select value={source} onChange={(event) => setSource(event.target.value)}>
-              <option value="manual_dashboard">Dashboard report</option>
-              <option value="team_report">Simulated teammate report</option>
+            Application
+            <select
+              name="applicationId"
+              required
+              defaultValue={application?.id ?? ""}
+              disabled={!application?.id}
+            >
+              {application?.id ? (
+                <option value={application.id}>
+                  {application.name} ({application.id})
+                </option>
+              ) : (
+                <option value="">No registered application is available</option>
+              )}
             </select>
           </label>
           <label>
@@ -162,25 +168,21 @@ function IncidentReportForm({ application, onCreated }) {
               ))}
             </select>
           </label>
-          <label>
-            Application ID
+          <label className="incident-form-wide">
+            Teammate reporting token
             <input
-              name="applicationId"
+              name="reportingToken"
+              type="password"
               required
-              maxLength={64}
-              defaultValue={application?.id ?? ""}
-              placeholder="Application identifier"
+              minLength={32}
+              maxLength={256}
+              autoComplete="off"
+              spellCheck="false"
+              aria-describedby="incident-report-token-help"
             />
-          </label>
-          <label>
-            Application name
-            <input
-              name="applicationName"
-              required
-              maxLength={100}
-              defaultValue={application?.name ?? ""}
-              placeholder="Application name"
-            />
+            <span id="incident-report-token-help" className="incident-form-help">
+              This token is mapped to your verified reporter identity on the API.
+            </span>
           </label>
           <label className="incident-form-wide">
             Incident title
@@ -190,41 +192,47 @@ function IncidentReportForm({ application, onCreated }) {
             Description
             <textarea name="description" required maxLength={4000} rows={3} />
           </label>
-          <label>
-            Reporter name
-            <input name="reporterName" required maxLength={120} autoComplete="name" />
-          </label>
-          {source === "team_report" ? (
-            <>
-              <label>
-                Reporter ID (optional)
-                <input name="reporterId" maxLength={200} />
-              </label>
+          <details className="incident-report-context incident-form-wide">
+            <summary>Add communication context (optional)</summary>
+            <div className="incident-form-grid">
               <label>
                 Communication platform
-                <select name="platform" defaultValue="slack">
+                <select name="platform" defaultValue="">
+                  <option value="">Not specified</option>
                   <option value="slack">Slack (simulated)</option>
                   <option value="discord">Discord (simulated)</option>
                   <option value="other">Other</option>
                 </select>
               </label>
               <label>
-                Channel or conversation
-                <input name="channelReference" required maxLength={300} />
+                Channel, message, or conversation reference
+                <input name="channelReference" maxLength={300} />
               </label>
               <label className="incident-form-wide">
-                Original teammate message
-                <textarea name="originalMessage" required maxLength={8000} rows={3} />
+                Original message (optional)
+                <textarea name="originalMessage" maxLength={8000} rows={3} />
               </label>
               <label>
-                Message timestamp
-                <input name="messageTimestamp" type="datetime-local" required />
+                Message time (optional)
+                <input name="messageTimestamp" type="datetime-local" />
               </label>
-            </>
-          ) : null}
+            </div>
+          </details>
         </div>
         {error ? <p className="form-error" role="alert">{error}</p> : null}
-        <button className="form-submit" type="submit" disabled={submitting}>
+        {createdIncident ? (
+          <p className="incident-report-success" role="status">
+            Incident created · {humanize(createdIncident.status)} ·{" "}
+            <Link href={`/incidents/${createdIncident.incidentId}`}>
+              View {createdIncident.incidentId}
+            </Link>
+          </p>
+        ) : null}
+        <button
+          className="form-submit"
+          type="submit"
+          disabled={submitting || !application?.id}
+        >
           {submitting ? "Creating…" : "Create incident"}
         </button>
       </form>
@@ -237,7 +245,6 @@ export default function IncidentList({
   initialError = false,
   application = null,
 }) {
-  const router = useRouter();
   const [incidents, setIncidents] = useState(initialIncidents);
   const [filters, setFilters] = useState({ status: "", source: "", severity: "" });
   const [error, setError] = useState(initialError ? "Incident data could not be loaded." : "");
@@ -283,7 +290,6 @@ export default function IncidentList({
   async function handleCreated(incident) {
     setIncidents((current) => [incident, ...current]);
     setFilters({ status: "", source: "", severity: "" });
-    router.push(`/incidents/${incident.incidentId}`);
   }
 
   return (

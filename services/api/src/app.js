@@ -4,6 +4,7 @@ import {
   isAuthorizedBearer,
   parseMonitoringEvent,
 } from "@oncall/shared/monitoring";
+import { authenticateTeamReporter } from "./team-report-auth.js";
 
 const INCIDENT_SOURCES = ["monitoring", "team_report", "manual_dashboard"];
 const INCIDENT_SEVERITIES = ["low", "medium", "high", "critical"];
@@ -64,6 +65,7 @@ export function createApiApp({
   applicationId,
   applicationName,
   ingestToken,
+  teamReporterCredentials = [],
   readinessCheck = async () => ({
     ready: true,
     checks: { process: "ok", mongodb: "ok" },
@@ -87,7 +89,8 @@ export function createApiApp({
           endpoints: [
             "GET /api/v1/monitoring/status",
             "POST /api/v1/monitoring/checks",
-            "POST /api/v1/incidents",
+            "POST /api/v1/incidents/reports (team reporter bearer token required)",
+            "POST /api/v1/incidents (manual dashboard; teammate bearer token required)",
             "GET /api/v1/incidents",
             "GET /api/v1/incidents/:incidentId",
             "PATCH /api/v1/incidents/:incidentId",
@@ -96,6 +99,80 @@ export function createApiApp({
           ],
         });
       });
+
+      async function createAuthenticatedIncident(req, res, source) {
+        const reporter = authenticateTeamReporter(
+          req.get("authorization"),
+          teamReporterCredentials,
+        );
+        if (!reporter) {
+          res.setHeader("WWW-Authenticate", 'Bearer realm="incident-reporting"');
+          res.status(401).json({
+            error: {
+              code: "UNAUTHORIZED",
+              message: "A valid teammate reporting token is required.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+
+        const body = req.body;
+        if (!body || typeof body !== "object" || Array.isArray(body)) {
+          res.status(400).json({
+            error: {
+              code: "INVALID_INCIDENT",
+              message: "Incident data must be an object.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+
+        if (
+          source === "manual_dashboard" &&
+          body.source !== undefined &&
+          body.source !== "manual_dashboard"
+        ) {
+          res.status(400).json({
+            error: {
+              code: "INVALID_INCIDENT_SOURCE",
+              message: "Dashboard incident source is assigned by the API.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+
+        if (body.applicationId !== applicationId) {
+          res.status(400).json({
+            error: {
+              code: "INVALID_APPLICATION",
+              message: "The selected application is not registered for incident reporting.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
+
+        try {
+          const result = await incidentService.createIncident({
+            ...body,
+            source,
+            applicationName,
+            reporter,
+          });
+          res.status(result.created ? 201 : 200).json({ incident: result.incident });
+        } catch (error) {
+          res.status(400).json({
+            error: {
+              code: "INVALID_INCIDENT",
+              message: error.message,
+              requestId: req.requestId,
+            },
+          });
+        }
+      }
 
       app.get("/api/v1/monitoring/status", async (_req, res) => {
         res.setHeader("Cache-Control", "no-store");
@@ -160,36 +237,12 @@ export function createApiApp({
         res.json({ incidents, count: incidents.length });
       });
 
-      app.post("/api/v1/incidents", async (req, res) => {
-        const body = req.body;
-        if (
-          !body ||
-          typeof body !== "object" ||
-          Array.isArray(body) ||
-          !["team_report", "manual_dashboard"].includes(body.source)
-        ) {
-          res.status(400).json({
-            error: {
-              code: "INVALID_INCIDENT",
-              message: "Incident source must be team_report or manual_dashboard.",
-              requestId: req.requestId,
-            },
-          });
-          return;
-        }
+      app.post("/api/v1/incidents/reports", async (req, res) => {
+        await createAuthenticatedIncident(req, res, "team_report");
+      });
 
-        try {
-          const result = await incidentService.createIncident(body);
-          res.status(result.created ? 201 : 200).json({ incident: result.incident });
-        } catch (error) {
-          res.status(400).json({
-            error: {
-              code: "INVALID_INCIDENT",
-              message: error.message,
-              requestId: req.requestId,
-            },
-          });
-        }
+      app.post("/api/v1/incidents", async (req, res) => {
+        await createAuthenticatedIncident(req, res, "manual_dashboard");
       });
 
       app.get("/api/v1/incidents/:incidentId/history", async (req, res) => {
@@ -229,10 +282,28 @@ export function createApiApp({
           });
           return;
         }
+        const reporter = authenticateTeamReporter(
+          req.get("authorization"),
+          teamReporterCredentials,
+        );
+        if (!reporter) {
+          res.setHeader("WWW-Authenticate", 'Bearer realm="incident-reporting"');
+          res.status(401).json({
+            error: {
+              code: "UNAUTHORIZED",
+              message: "A valid teammate reporting token is required.",
+              requestId: req.requestId,
+            },
+          });
+          return;
+        }
         try {
           const incident = await incidentService.linkReport(
             req.params.incidentId,
-            req.body,
+            {
+              ...req.body,
+              reporter,
+            },
           );
           if (!incident) {
             res.status(404).json({

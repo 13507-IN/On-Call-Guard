@@ -36,7 +36,11 @@ export async function POST(request) {
   }
 
   try {
-    return await proxyIncidentApiRequest("incidents", { method: "POST", body });
+    return await proxyIncidentApiRequest("incidents", {
+      method: "POST",
+      body,
+      authorization: request.headers.get("authorization"),
+    });
   } catch {
     return Response.json(
       { error: "Incident service is temporarily unavailable." },
