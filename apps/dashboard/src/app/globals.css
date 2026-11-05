@@ -357,6 +357,10 @@ a:focus-visible {
   color: var(--muted);
 }
 
+.health-state-unknown {
+  color: var(--muted);
+}
+
 .health-dot {
   width: 7px;
   height: 7px;
@@ -420,6 +424,187 @@ a:focus-visible {
   font-size: 13px;
 }
 
+.monitoring-panel {
+  margin-bottom: 28px;
+}
+
+.monitor-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  padding: 0 18px;
+  border-top: 1px solid var(--rule);
+  border-bottom: 1px solid var(--rule);
+}
+
+.monitor-summary-item {
+  min-width: 0;
+  padding: 14px 12px;
+}
+
+.monitor-summary-item + .monitor-summary-item {
+  border-left: 1px solid var(--rule);
+}
+
+.monitor-summary-item dt {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.monitor-summary-item dd {
+  min-height: 28px;
+  margin: 5px 0 0;
+}
+
+.monitor-summary-item > p {
+  min-height: 36px;
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.monitor-number {
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.monitor-number > span {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.incident-section {
+  padding-top: 15px;
+}
+
+.incident-section-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 18px 10px;
+}
+
+.incident-section-heading h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.incident-section-heading > span {
+  color: var(--muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.incident-table-head,
+.incident-row {
+  display: grid;
+  grid-template-columns:
+    minmax(220px, 2.1fr)
+    minmax(86px, 0.7fr)
+    minmax(138px, 1.1fr)
+    minmax(86px, 0.7fr)
+    minmax(120px, 1fr);
+  align-items: center;
+  column-gap: 14px;
+  padding-right: 18px;
+  padding-left: 18px;
+}
+
+.incident-table-head {
+  min-height: 34px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.incident-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.incident-row {
+  min-height: 76px;
+  padding-top: 11px;
+  padding-bottom: 11px;
+  border-top: 1px solid var(--rule);
+}
+
+.incident-identity {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.incident-title {
+  overflow: hidden;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.incident-description {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.incident-id {
+  overflow: hidden;
+  color: var(--faint);
+  font-family: var(--mono); /* taste-skill-ignore: stable incident IDs use the app's monospace data face. */
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.incident-cell {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+}
+
+.incident-cell time,
+.incident-cell > span:last-child {
+  overflow: hidden;
+  max-width: 100%;
+  font-variant-numeric: tabular-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.incident-severity {
+  width: fit-content;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--negative-bg);
+  color: var(--negative-ink);
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.incident-empty {
+  margin: 0;
+  padding: 12px 18px 16px;
+  border-top: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.monitoring-error {
+  margin-top: 12px;
+}
+
 .scope-section {
   margin-top: 30px;
 }
@@ -479,6 +664,41 @@ a:focus-visible {
   .service-row {
     grid-template-columns: minmax(170px, 1fr) minmax(185px, 1fr) 86px;
     column-gap: 12px;
+  }
+
+  .monitor-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .monitor-summary-item + .monitor-summary-item {
+    border-left: 0;
+  }
+
+  .monitor-summary-item:nth-child(even) {
+    border-left: 1px solid var(--rule);
+  }
+
+  .monitor-summary-item:nth-child(n + 3) {
+    border-top: 1px solid var(--rule);
+  }
+
+  .incident-table-head {
+    display: none;
+  }
+
+  .incident-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px 16px;
+  }
+
+  .incident-identity {
+    grid-column: 1 / -1;
+  }
+
+  .incident-cell .column-label {
+    display: inline;
+    color: var(--muted);
+    font-size: 12px;
   }
 }
 
@@ -569,6 +789,30 @@ a:focus-visible {
 
   .panel-actions .refresh-button {
     min-height: 44px;
+  }
+
+  .monitor-summary-grid {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .monitor-summary-item {
+    padding: 12px 8px;
+  }
+
+  .incident-section-heading {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .incident-row {
+    padding-right: 14px;
+    padding-left: 14px;
+  }
+
+  .incident-empty {
+    padding-right: 14px;
+    padding-left: 14px;
   }
 
   .freshness {

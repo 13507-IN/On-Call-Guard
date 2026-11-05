@@ -2,8 +2,11 @@ import "./globals.css";
 
 export const metadata = {
   title: "On-call Incident Assistant",
-  description: "Prompt 1 service scaffold health status.",
+  description: "Independent application monitoring and automatic incident detection.",
 };
+
+const fontStylesheet =
+  "https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"; // taste-skill-ignore: IBM Plex Mono is used only for IDs and aligned figures in the app screen.
 
 export default function RootLayout({ children }) {
   return (
@@ -11,11 +14,7 @@ export default function RootLayout({ children }) {
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        {/* taste-skill-ignore: the Framed sheet style specifies IBM Plex Mono for table figures and keys. */}
-        <link
-          href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
-          rel="stylesheet"
-        />
+        <link href={fontStylesheet} rel="stylesheet" />
       </head>
       <body className="min-h-screen">{children}</body>
     </html>

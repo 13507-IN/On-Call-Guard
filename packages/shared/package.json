@@ -6,6 +6,7 @@
   "exports": {
     "./http-service": "./src/http-service.js",
     "./logger": "./src/logger.js",
-    "./port": "./src/port.js"
+    "./port": "./src/port.js",
+    "./monitoring": "./src/monitoring.js"
   }
 }

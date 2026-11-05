@@ -3,13 +3,14 @@
 import { useCallback, useState } from "react";
 
 function formatTimestamp(timestamp) {
-  if (!timestamp) return "—";
+  if (!timestamp) return "-";
   const date = new Date(timestamp);
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat(undefined, {
+  if (Number.isNaN(date.getTime())) return "-";
+  return `${new Intl.DateTimeFormat("en-US", {
     dateStyle: "medium",
     timeStyle: "medium",
-  }).format(date);
+    timeZone: "UTC",
+  }).format(date)} UTC`;
 }
 
 function HealthMark({ status }) {
@@ -41,7 +42,7 @@ function ServiceRow({ service, pending }) {
       <div className="service-latency">
         <span className="column-label">Response</span>
         <span className="numeric-value">
-          {pending || latency === null || latency === undefined ? "—" : `${latency} ms`}
+          {pending || latency === null || latency === undefined ? "-" : `${latency} ms`}
         </span>
       </div>
     </li>
@@ -120,7 +121,7 @@ export default function ServiceOverview({ services, initialReport }) {
 
       {report?.services?.some((service) => service.status === "unavailable") ? (
         <p className="unavailable-note">
-          An unavailable process is not an incident; incident detection is not active in this stage.
+          Continuous incident detection applies to the demo application. Supporting process checks are on demand.
         </p>
       ) : null}
     </section>

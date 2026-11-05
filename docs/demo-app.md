@@ -27,47 +27,24 @@ Select a mode with `DEMO_APP_RELEASE`. The mode is validated at startup; any oth
 the app from starting. The broken release does not issue database writes, alter collections, or
 mount database storage. It only attempts the same read-only ping against an unreachable host.
 
-## Demonstration with Docker Compose (PowerShell)
+## Local demonstration (PowerShell)
 
-Start the stack using the repository's `.env` file:
-
-```powershell
-docker compose --env-file .env -f infrastructure/docker/docker-compose.yml up --build -d
-```
-
-Confirm the healthy release:
+Set `MONGODB_URI` in `.env` to a reachable database, set `DEMO_APP_RELEASE=healthy`, then run
+`npm run dev` from the repository root. Confirm the healthy release:
 
 ```powershell
 Invoke-RestMethod http://localhost:4101/version
 Invoke-RestMethod http://localhost:4101/health
 ```
 
-Switch only the demo app to the broken release:
+To trigger a real health failure, change `DEMO_APP_RELEASE` to `broken` in `.env`, stop the
+development processes with `Ctrl+C`, and restart them with `npm run dev`:
 
 ```powershell
-$env:DEMO_APP_RELEASE = "broken"
-docker compose --env-file .env -f infrastructure/docker/docker-compose.yml up -d --no-deps --force-recreate demo-app
-Remove-Item Env:DEMO_APP_RELEASE
-Invoke-WebRequest http://localhost:4101/health
+Invoke-RestMethod http://localhost:4101/version
+try { Invoke-WebRequest http://localhost:4101/health } catch { $_.Exception.Response.StatusCode }
 ```
 
-The last request should return HTTP 503. Restore the prior healthy release:
-
-```powershell
-$env:DEMO_APP_RELEASE = "healthy"
-docker compose --env-file .env -f infrastructure/docker/docker-compose.yml up -d --no-deps --force-recreate demo-app
-Remove-Item Env:DEMO_APP_RELEASE
-Invoke-RestMethod http://localhost:4101/health
-```
-
-The `mongo-data` named volume is preserved when the containers are stopped or recreated. The
-Compose MongoDB port is bound to localhost only. Do not use `docker compose down --volumes` if
-you want to retain that data.
-
-## Local Node.js development
-
-Set `MONGODB_URI` in `.env` to a local MongoDB instance, then start the `mongodb` Compose service
-and run `npm run dev`. To exercise the broken release locally, set `DEMO_APP_RELEASE=broken` in
-the process environment before starting `apps/demo-app`; restart with `DEMO_APP_RELEASE=healthy`
-to restore the previous release.
-
+The health request returns HTTP 503 for the broken release. Restore `DEMO_APP_RELEASE=healthy` in
+`.env` and restart `npm run dev`. The broken release only pings an unavailable host; it performs no
+database writes and does not alter existing data.

@@ -1,6 +1,8 @@
 import ServiceOverview from "../components/service-overview.jsx";
+import MonitoringOverview from "../components/monitoring-overview.jsx";
 import { SERVICE_CATALOG } from "../lib/service-catalog.js";
 import { getHealthReport } from "../lib/health-checks.js";
+import { getDashboardMonitoringData } from "../lib/monitoring-data.js";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +16,14 @@ function BrandMark() {
 }
 
 export default async function HomePage() {
-  const initialReport = await getHealthReport();
+  const [initialReport, initialMonitoringData] = await Promise.all([
+    getHealthReport(),
+    getDashboardMonitoringData(),
+  ]);
+  const initialUpdatedAt =
+    initialMonitoringData.monitoringAvailable || initialMonitoringData.incidentsAvailable
+      ? new Date().toISOString()
+      : null;
 
   return (
     <div className="app-frame">
@@ -43,15 +52,15 @@ export default async function HomePage() {
       <main className="main-area">
         <header className="topbar">
           <span>Local workspace</span>
-          <span className="stage-label">Scaffold · Prompt 1</span>
+          <span className="stage-label">Monitoring · Prompt 3</span>
         </header>
 
         <div className="work-sheet">
           <section className="page-heading" aria-labelledby="page-title">
             <div>
-              <h1 id="page-title">Service health</h1>
+              <h1 id="page-title">Monitoring overview</h1>
               <p className="page-subtitle">
-                Readiness checks for the demo application and service processes.
+                Independent health checks and active incidents for the demo application.
               </p>
             </div>
             <a className="api-link" href="/api/health" target="_blank" rel="noreferrer">
@@ -59,12 +68,21 @@ export default async function HomePage() {
             </a>
           </section>
 
+          <MonitoringOverview
+            initialMonitoring={initialMonitoringData.monitoring}
+            initialIncidents={initialMonitoringData.incidents}
+            initialMonitoringAvailable={initialMonitoringData.monitoringAvailable}
+            initialIncidentsAvailable={initialMonitoringData.incidentsAvailable}
+            initialUpdatedAt={initialUpdatedAt}
+            initialError={initialMonitoringData.hasError}
+          />
+
           <ServiceOverview services={SERVICE_CATALOG} initialReport={initialReport} />
 
           <section className="scope-section" aria-labelledby="scope-heading">
             <div className="scope-section-heading">
               <h2 id="scope-heading">What these checks cover</h2>
-              <p>Each service reports the checks that define its readiness.</p>
+              <p>The demo app is monitored continuously; supporting processes are checked on demand.</p>
             </div>
             <div className="scope-grid">
               <article>
@@ -77,7 +95,7 @@ export default async function HomePage() {
               </article>
               <article>
                 <h3>Other services</h3>
-                <p>The API, monitor, triage and executor scaffold checks process reachability only. Scheduled monitoring is not active yet.</p>
+                <p>The API, triage and executor entries report process reachability. The independent monitor reports its own readiness.</p>
               </article>
             </div>
           </section>
